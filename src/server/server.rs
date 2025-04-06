@@ -71,6 +71,8 @@ pub(crate) fn exec_server(port: u16) {
                             let mut entity = game_state.find_by_player_id_mut(player_id).unwrap();
                             entity.pos.x = entity.pos.x + package.movement.x;
                             entity.pos.y = entity.pos.y + package.movement.y;
+                            entity.rot = package.rotation;
+
                             last_sequence_number = package.sequence_number
                         }
                     }

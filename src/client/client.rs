@@ -12,8 +12,9 @@ use sdl2::{event::Event, keyboard::Keycode};
 use crate::{
     client::RenderModel,
     common::{
-        ClientToServerPackage, Color, EntityCreateInfo, GameState, PacketReader, PacketWriter,
-        PlayerConnectedPackage, PlayerInputPackage, Point, ServerToClientPackage, Vector,
+        ClientToServerPackage, Color, Complex, EntityCreateInfo, GameState, PacketReader,
+        PacketWriter, PlayerConnectedPackage, PlayerInputPackage, Point, ServerToClientPackage,
+        Vector,
     },
 };
 
@@ -87,6 +88,7 @@ impl Networker {
                         PlayerConnectedPackage {
                             entity_create_info: EntityCreateInfo {
                                 pos: Point { x: 500, y: 500 },
+                                rot: Complex { r: 1., i: 0. },
                                 color: Color {
                                     a: rng.random(),
                                     r: rng.random(),
@@ -145,6 +147,7 @@ struct Controlls {
     right_pressed: bool,
     up_pressed: bool,
     down_pressed: bool,
+    mouse_pos: Point,
 }
 
 impl Controlls {
@@ -154,6 +157,7 @@ impl Controlls {
             right_pressed: false,
             up_pressed: false,
             down_pressed: false,
+            mouse_pos: Point { x: 0, y: 0 },
         }
     }
 }
@@ -213,6 +217,8 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
                     keycode: Some(Keycode::D),
                     ..
                 } => controlls.right_pressed = false,
+
+                Event::MouseMotion { x, y, .. } => controlls.mouse_pos = Point { x, y },
                 _ => {}
             }
         }
@@ -236,13 +242,16 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
             if let Some(mut entity) = game_state_queue.prediction.find_by_player_id_mut(player_id) {
                 entity.pos.x = entity.pos.x + movement.x;
                 entity.pos.y = entity.pos.y + movement.y;
+                let old_rot = entity.rot;
+                entity.rot = (controlls.mouse_pos - entity.pos).normalize();
 
-                if movement.x != 0 || movement.y != 0 {
+                if movement.x != 0 || movement.y != 0 || entity.rot != old_rot {
                     last_sequence_number += 1;
                     networker
                         .write_package(ClientToServerPackage::PlayerInput(PlayerInputPackage {
                             sequence_number: last_sequence_number,
                             movement,
+                            rotation: entity.rot,
                         }))
                         .unwrap();
                 }

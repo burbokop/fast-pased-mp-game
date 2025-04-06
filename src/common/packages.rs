@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use serde::{Deserialize, Serialize};
 
-use super::{EntityCreateInfo, GameState, Vector};
+use super::{Complex, EntityCreateInfo, GameState, Vector};
 
 /// Sent from server to client when it is connected
 #[derive(Debug, Serialize, Deserialize)]
@@ -28,6 +28,7 @@ pub(crate) struct PlayerConnectedPackage {
 pub(crate) struct PlayerInputPackage {
     pub(crate) sequence_number: u32,
     pub(crate) movement: Vector,
+    pub(crate) rotation: Complex,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

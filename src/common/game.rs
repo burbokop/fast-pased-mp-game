@@ -1,34 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::{
     cell::{Ref, RefCell, RefMut},
     num::NonZero,
 };
 
-use serde::{Deserialize, Serialize};
-
-fn lerp(a: i32, b: i32, t: f64) -> i32 {
-    (a as f64 * (1. - t) + b as f64 * t) as i32
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub(crate) struct Point {
-    pub(crate) x: i32,
-    pub(crate) y: i32,
-}
-
-impl Point {
-    pub(crate) fn lerp(a: Self, b: Self, t: f64) -> Self {
-        Self {
-            x: lerp(a.x, b.x, t),
-            y: lerp(a.y, b.y, t),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub(crate) struct Vector {
-    pub(crate) x: i32,
-    pub(crate) y: i32,
-}
+use super::{Complex, Point};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct Color {
@@ -43,6 +19,7 @@ pub(crate) struct Entity {
     pub(crate) id: u32,
     pub(crate) player_id: NonZero<u64>,
     pub(crate) pos: Point,
+    pub(crate) rot: Complex,
     pub(crate) color: Color,
 }
 
@@ -52,6 +29,7 @@ impl Entity {
             id: b.id,
             player_id: b.player_id,
             pos: Point::lerp(a.pos, b.pos, t),
+            rot: Complex::lerp(a.rot, b.rot, t),
             color: b.color,
         }
     }
@@ -60,6 +38,7 @@ impl Entity {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct EntityCreateInfo {
     pub(crate) pos: Point,
+    pub(crate) rot: Complex,
     pub(crate) color: Color,
 }
 
@@ -82,6 +61,7 @@ impl GameState {
             id: self.next_entity_id,
             player_id,
             pos: entity.pos,
+            rot: entity.rot,
             color: entity.color,
         }));
         self.next_entity_id += 1;

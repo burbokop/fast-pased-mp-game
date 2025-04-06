@@ -1,5 +1,6 @@
 use font_loader::system_fonts;
 use sdl2::{
+    gfx::primitives::DrawRenderer,
     pixels,
     rect::{self, Rect},
     render::{Canvas, TextureQuery},
@@ -9,7 +10,7 @@ use sdl2::{
     Sdl,
 };
 
-use crate::common::Color;
+use crate::common::{Color, Vector};
 
 use super::GameStateQueue;
 
@@ -103,14 +104,17 @@ impl RenderModel {
         self.canvas.clear();
 
         for entity in game_state_queue.prediction.entities() {
+            let p0 = entity.pos + Vector { x: -8, y: -8 } * entity.rot;
+            let p1 = entity.pos + Vector { x: 8, y: -8 } * entity.rot;
+            let p2 = entity.pos + Vector { x: 8, y: 8 } * entity.rot;
+            let p3 = entity.pos + Vector { x: -8, y: 8 } * entity.rot;
+
             self.canvas
-                .set_draw_color(game_color_to_sdl_color(entity.color.clone()));
-            self.canvas
-                .fill_rect(Rect::from_center(
-                    (entity.pos.x as i32, entity.pos.y as i32),
-                    16,
-                    16,
-                ))
+                .filled_polygon(
+                    &[p0.x as i16, p1.x as i16, p2.x as i16, p3.x as i16],
+                    &[p0.y as i16, p1.y as i16, p2.y as i16, p3.y as i16],
+                    game_color_to_sdl_color(entity.color.clone()),
+                )
                 .unwrap();
         }
 
