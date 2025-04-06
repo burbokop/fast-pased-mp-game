@@ -1,4 +1,3 @@
-use core::str;
 use std::{
     cell::RefCell,
     net::{SocketAddrV4, TcpStream},
@@ -7,40 +6,25 @@ use std::{
     time::{Duration, Instant},
 };
 
-use font_loader::system_fonts;
 use rand::{rng, Rng};
-use sdl2::{
-    event::Event,
-    keyboard::Keycode,
-    pixels::{self},
-    rect::{self, Rect},
-    render::{Canvas, TextureQuery},
-    rwops::RWops,
-    ttf::Font,
-};
+use sdl2::{event::Event, keyboard::Keycode};
 
-use crate::common::{
-    ClientToServerPackage, Color, EntityCreateInfo, GameState, PacketReader, PacketWriter,
-    PlayerConnectedPackage, PlayerInputPackage, Point, ServerToClientPackage, Vector,
+use crate::{
+    client::RenderModel,
+    common::{
+        ClientToServerPackage, Color, EntityCreateInfo, GameState, PacketReader, PacketWriter,
+        PlayerConnectedPackage, PlayerInputPackage, Point, ServerToClientPackage, Vector,
+    },
 };
-
-fn game_color_to_sdl_color(c: Color) -> pixels::Color {
-    pixels::Color {
-        r: c.r,
-        g: c.g,
-        b: c.b,
-        a: c.a,
-    }
-}
 
 pub(crate) struct GameStateQueue {
-    prediction: GameState,
-    last_received: GameState,
-    penultimate_received: GameState,
+    pub(crate) prediction: GameState,
+    pub(crate) last_received: GameState,
+    pub(crate) penultimate_received: GameState,
 }
 
 impl GameStateQueue {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             prediction: GameState::new(),
             last_received: GameState::new(),
@@ -174,68 +158,16 @@ impl Controlls {
     }
 }
 
-pub fn draw_text(
-    canvas: &mut Canvas<sdl2::video::Window>,
-    font: &Font,
-    point: rect::Point,
-    color: pixels::Color,
-    text: &str,
-) {
-    let texture_creator = canvas.texture_creator();
-    let surface = font
-        .render(text)
-        .blended(color)
-        .map_err(|e| e.to_string())
-        .unwrap();
-    let texture = texture_creator
-        .create_texture_from_surface(&surface)
-        .map_err(|e| e.to_string())
-        .unwrap();
-
-    let TextureQuery { width, height, .. } = texture.query();
-    canvas
-        .copy(&texture, None, Rect::from_center(point, width, height))
-        .unwrap();
-}
-
 pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
     println!("Running client. Connecting to {}", addr);
 
     let mut game_state_queue = GameStateQueue::new();
     let mut controlls = Controlls::new();
     let mut last_sequence_number: u32 = 0;
-
     let mut networker = Networker::connect(addr).unwrap();
-
     let sdl_context = sdl2::init()?;
-    let video_subsystem = sdl_context.video()?;
-
-    let window = video_subsystem
-        .window("Fast pased mp game client", 800, 600)
-        .position_centered()
-        .opengl()
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
-
-    let mut property = system_fonts::FontPropertyBuilder::new().monospace().build();
-    let sysfonts = system_fonts::query_specific(&mut property);
-    let font_bytes = system_fonts::get(
-        &system_fonts::FontPropertyBuilder::new()
-            .family(sysfonts.first().unwrap())
-            .build(),
-    )
-    .unwrap();
-    let rwops = RWops::from_bytes(&font_bytes.0[..]).unwrap();
-
-    let ttf_context = sdl2::ttf::init().map_err(|e| e.to_string()).unwrap();
-
-    let font = ttf_context.load_font_from_rwops(rwops, 12).unwrap();
-
     let mut event_pump = sdl_context.event_pump()?;
-
-    let mut int: f64 = 0.;
+    let mut render_model = RenderModel::new(sdl_context)?;
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -281,23 +213,6 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
                     keycode: Some(Keycode::D),
                     ..
                 } => controlls.right_pressed = false,
-
-                Event::KeyDown {
-                    keycode: Some(Keycode::Left),
-                    ..
-                } => {
-                    int -= 0.05;
-                    println!("int: {}", int);
-                }
-
-                Event::KeyDown {
-                    keycode: Some(Keycode::Right),
-                    ..
-                } => {
-                    int += 0.05;
-                    println!("int: {}", int);
-                }
-
                 _ => {}
             }
         }
@@ -338,68 +253,8 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
             .proceed(&mut game_state_queue, last_sequence_number)
             .unwrap();
 
-        canvas.set_draw_color(pixels::Color::RGB(255, 0, 0));
-        canvas.clear();
+        render_model.render(&game_state_queue, networker.interpolation_value());
 
-        for entity in game_state_queue.prediction.entities() {
-            canvas.set_draw_color(game_color_to_sdl_color(entity.color.clone()));
-            canvas
-                .fill_rect(Rect::from_center(
-                    (entity.pos.x as i32, entity.pos.y as i32),
-                    16,
-                    16,
-                ))
-                .unwrap();
-        }
-
-        canvas.set_draw_color(pixels::Color::RGB(0, 255, 0));
-
-        if controlls.left_pressed {
-            canvas
-                .fill_rect(Rect::from_center((100 - 16, 100), 16, 16))
-                .unwrap();
-        } else {
-            canvas
-                .draw_rect(Rect::from_center((100 - 16, 100), 16, 16))
-                .unwrap();
-        }
-        if controlls.right_pressed {
-            canvas
-                .fill_rect(Rect::from_center((100 + 16, 100), 16, 16))
-                .unwrap();
-        } else {
-            canvas
-                .draw_rect(Rect::from_center((100 + 16, 100), 16, 16))
-                .unwrap();
-        }
-        if controlls.up_pressed {
-            canvas
-                .fill_rect(Rect::from_center((100, 100 - 16), 16, 16))
-                .unwrap();
-        } else {
-            canvas
-                .draw_rect(Rect::from_center((100, 100 - 16), 16, 16))
-                .unwrap();
-        }
-        if controlls.down_pressed {
-            canvas
-                .fill_rect(Rect::from_center((100, 100 + 16), 16, 16))
-                .unwrap();
-        } else {
-            canvas
-                .draw_rect(Rect::from_center((100, 100 + 16), 16, 16))
-                .unwrap();
-        }
-
-        draw_text(
-            &mut canvas,
-            &font,
-            (40, 40).into(),
-            pixels::Color::RGB(0, 255, 255),
-            &format!("{:.2}", networker.interpolation_value()),
-        );
-
-        canvas.present();
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
 
