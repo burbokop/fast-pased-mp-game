@@ -2,7 +2,7 @@ use font_loader::system_fonts;
 use sdl2::{
     gfx::primitives::DrawRenderer,
     pixels,
-    rect::{self, Rect},
+    rect::{self},
     render::{Canvas, TextureQuery},
     rwops::RWops,
     ttf::Sdl2TtfContext,
@@ -10,9 +10,7 @@ use sdl2::{
     Sdl,
 };
 
-use crate::common::{Color, Vector};
-
-use super::GameStateQueue;
+use crate::common::{Color, GameState, Rect, Segment, Vector};
 
 fn game_color_to_sdl_color(c: Color) -> pixels::Color {
     pixels::Color {
@@ -21,6 +19,10 @@ fn game_color_to_sdl_color(c: Color) -> pixels::Color {
         b: c.b,
         a: c.a,
     }
+}
+
+fn game_rect_to_sdl_rect(c: Rect) -> rect::Rect {
+    rect::Rect::new(c.x as i32, c.y as i32, c.w as u32, c.h as u32)
 }
 
 struct OwnedFont {
@@ -52,7 +54,11 @@ impl OwnedFont {
 
         let TextureQuery { width, height, .. } = texture.query();
         canvas
-            .copy(&texture, None, Rect::from_center(point, width, height))
+            .copy(
+                &texture,
+                None,
+                rect::Rect::from_center(point, width, height),
+            )
             .unwrap();
     }
 }
@@ -99,11 +105,16 @@ impl RenderModel {
         })
     }
 
-    pub(crate) fn render(&mut self, game_state_queue: &GameStateQueue, interpolation_value: f64) {
+    pub(crate) fn render(&mut self, game_state: &GameState, interpolation_value: f64) {
         self.canvas.set_draw_color(pixels::Color::RGB(255, 0, 0));
         self.canvas.clear();
 
-        for entity in game_state_queue.prediction.entities() {
+        self.canvas.set_draw_color(pixels::Color::RGB(255, 255, 0));
+        self.canvas
+            .draw_rect(game_rect_to_sdl_rect(game_state.world_bounds()))
+            .unwrap();
+
+        for entity in game_state.entities() {
             match entity.role {
                 crate::common::EntityRole::Character => {
                     let p0 = entity.pos + Vector { x: -8., y: -8. } * entity.rot;

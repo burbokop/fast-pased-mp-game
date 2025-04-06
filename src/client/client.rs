@@ -298,7 +298,10 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
             .proceed(&mut game_state_queue, last_sequence_number)
             .unwrap();
 
-        render_model.render(&game_state_queue, networker.interpolation_value());
+        render_model.render(
+            &game_state_queue.prediction,
+            networker.interpolation_value(),
+        );
 
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }

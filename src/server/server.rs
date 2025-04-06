@@ -64,7 +64,6 @@ pub(crate) fn exec_server(port: u16) {
             loop {
                 for data in reader.read(&mut stream).unwrap() {
                     let package: ClientToServerPackage = serde_json::from_slice(&data).unwrap();
-                    println!("got package: {:?}", package);
                     match package {
                         ClientToServerPackage::PlayerConnected(_) => {
                             panic!("Double init")
