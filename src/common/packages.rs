@@ -29,6 +29,7 @@ pub(crate) struct PlayerInputPackage {
     pub(crate) sequence_number: u32,
     pub(crate) movement: Vector,
     pub(crate) rotation: Complex,
+    pub(crate) left_mouse_pressed: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

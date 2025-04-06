@@ -2,18 +2,14 @@ use std::ops::{Add, Mul, Sub};
 
 use serde::{Deserialize, Serialize};
 
-fn lerp_i32(a: i32, b: i32, t: f64) -> i32 {
-    (a as f64 * (1. - t) + b as f64 * t) as i32
-}
-
 fn lerp_f32(a: f32, b: f32, t: f64) -> f32 {
     (a as f64 * (1. - t) + b as f64 * t) as f32
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub(crate) struct Point {
-    pub(crate) x: i32,
-    pub(crate) y: i32,
+    pub(crate) x: f32,
+    pub(crate) y: f32,
 }
 
 impl Sub for Point {
@@ -41,8 +37,8 @@ impl Add<Vector> for Point {
 impl Point {
     pub(crate) fn lerp(a: Self, b: Self, t: f64) -> Self {
         Self {
-            x: lerp_i32(a.x, b.x, t),
-            y: lerp_i32(a.y, b.y, t),
+            x: lerp_f32(a.x, b.x, t),
+            y: lerp_f32(a.y, b.y, t),
         }
     }
 }
@@ -64,8 +60,8 @@ impl Complex {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub(crate) struct Vector {
-    pub(crate) x: i32,
-    pub(crate) y: i32,
+    pub(crate) x: f32,
+    pub(crate) y: f32,
 }
 
 impl Vector {
@@ -80,6 +76,13 @@ impl Vector {
             i: self.y as f32 / len,
         }
     }
+
+    pub(crate) fn polar(rot: Complex, len: f32) -> Self {
+        Self {
+            x: rot.r * len,
+            y: rot.i * len,
+        }
+    }
 }
 
 impl Mul<Complex> for Vector {
@@ -87,8 +90,8 @@ impl Mul<Complex> for Vector {
 
     fn mul(self, rhs: Complex) -> Self::Output {
         Self::Output {
-            x: (self.x as f32 * rhs.r - self.y as f32 * rhs.i) as i32,
-            y: (self.x as f32 * rhs.i + self.y as f32 * rhs.r) as i32,
+            x: self.x as f32 * rhs.r - self.y as f32 * rhs.i,
+            y: self.x as f32 * rhs.i + self.y as f32 * rhs.r,
         }
     }
 }

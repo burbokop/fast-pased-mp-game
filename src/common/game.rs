@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::{
     cell::{Ref, RefCell, RefMut},
     num::NonZero,
+    time::{Duration, Instant},
 };
 
-use super::{Complex, Point};
+use super::{Complex, Point, Vector};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct Color {
@@ -14,13 +15,22 @@ pub(crate) struct Color {
     pub(crate) b: u8,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EntityRole {
+    Character,
+    Projectile,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct Entity {
     pub(crate) id: u32,
     pub(crate) player_id: NonZero<u64>,
+    #[serde(skip)]
+    pub(crate) birth_instant: Option<Instant>,
     pub(crate) pos: Point,
     pub(crate) rot: Complex,
     pub(crate) color: Color,
+    pub(crate) role: EntityRole,
 }
 
 impl Entity {
@@ -28,9 +38,11 @@ impl Entity {
         Entity {
             id: b.id,
             player_id: b.player_id,
+            birth_instant: b.birth_instant,
             pos: Point::lerp(a.pos, b.pos, t),
             rot: Complex::lerp(a.rot, b.rot, t),
             color: b.color,
+            role: b.role,
         }
     }
 }
@@ -40,6 +52,7 @@ pub(crate) struct EntityCreateInfo {
     pub(crate) pos: Point,
     pub(crate) rot: Complex,
     pub(crate) color: Color,
+    pub(crate) role: EntityRole,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -60,9 +73,11 @@ impl GameState {
         self.entities.push(RefCell::new(Entity {
             id: self.next_entity_id,
             player_id,
+            birth_instant: Some(Instant::now()),
             pos: entity.pos,
             rot: entity.rot,
             color: entity.color,
+            role: entity.role,
         }));
         self.next_entity_id += 1;
     }
@@ -75,7 +90,7 @@ impl GameState {
         self.entities.iter().filter_map(|x| x.try_borrow_mut().ok())
     }
 
-    pub(crate) fn find_by_player_id_mut<'a>(
+    pub(crate) fn find_character_by_player_id_mut<'a>(
         &'a self,
         player_id: NonZero<u64>,
     ) -> Option<RefMut<'a, Entity>> {
@@ -93,8 +108,12 @@ impl GameState {
             })
     }
 
-    pub(crate) fn add_or_replace_by_player_id(&mut self, player_id: NonZero<u64>, e: Entity) {
-        match self.find_by_player_id_mut(player_id) {
+    pub(crate) fn add_or_replace_character_by_player_id(
+        &mut self,
+        player_id: NonZero<u64>,
+        e: Entity,
+    ) {
+        match self.find_character_by_player_id_mut(player_id) {
             Some(mut entity) => return *entity = e,
             None => {}
         }
@@ -124,6 +143,23 @@ impl GameState {
             })
     }
 
+    pub(crate) fn proceed(&mut self, dt: Duration) {
+        let now = Instant::now();
+
+        self.entities.retain_mut(|e| {
+            let mut e = e.borrow_mut();
+
+            if e.role == EntityRole::Projectile {
+                let velosity = 300.;
+                e.pos = e.pos + Vector::polar(e.rot, velosity * dt.as_secs_f32());
+
+                now - e.birth_instant.unwrap() < Duration::from_secs(60)
+            } else {
+                true
+            }
+        });
+    }
+
     pub(crate) fn lerp_merge(
         result: &mut Self,
         a: &Self,
@@ -135,29 +171,12 @@ impl GameState {
             if b.player_id == ignore_with_player_id {
                 continue;
             }
-
             let a = a.find_by_id_mut(b.id);
-            // let r = result.find_by_id_mut(b.id);
-
-            // println!(")))))");
-
             if let Some(a) = a {
-                // println!("AAA");
                 result.add_or_replace_by_id(b.id, Entity::lerp(a.clone(), b.clone(), t));
             } else {
-                // println!("BBB");
                 result.add_or_replace_by_id(b.id, b.clone());
             }
-
-            // match (a, r) {
-            //     (Some(a), Some(r)) => {
-            //         println!("AAAA");
-            //         *r = Entity::lerp(a.clone(), b.clone(), t)
-            //     },
-            //     (None, Some(a)) => ;
-            //     b.clone()},
-            //     _ => {}
-            // }
         }
     }
 }

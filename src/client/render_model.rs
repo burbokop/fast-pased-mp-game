@@ -104,18 +104,31 @@ impl RenderModel {
         self.canvas.clear();
 
         for entity in game_state_queue.prediction.entities() {
-            let p0 = entity.pos + Vector { x: -8, y: -8 } * entity.rot;
-            let p1 = entity.pos + Vector { x: 8, y: -8 } * entity.rot;
-            let p2 = entity.pos + Vector { x: 8, y: 8 } * entity.rot;
-            let p3 = entity.pos + Vector { x: -8, y: 8 } * entity.rot;
+            match entity.role {
+                crate::common::EntityRole::Character => {
+                    let p0 = entity.pos + Vector { x: -8., y: -8. } * entity.rot;
+                    let p1 = entity.pos + Vector { x: 8., y: -8. } * entity.rot;
+                    let p2 = entity.pos + Vector { x: 8., y: 8. } * entity.rot;
+                    let p3 = entity.pos + Vector { x: -8., y: 8. } * entity.rot;
 
-            self.canvas
-                .filled_polygon(
-                    &[p0.x as i16, p1.x as i16, p2.x as i16, p3.x as i16],
-                    &[p0.y as i16, p1.y as i16, p2.y as i16, p3.y as i16],
-                    game_color_to_sdl_color(entity.color.clone()),
-                )
-                .unwrap();
+                    self.canvas
+                        .filled_polygon(
+                            &[p0.x as i16, p1.x as i16, p2.x as i16, p3.x as i16],
+                            &[p0.y as i16, p1.y as i16, p2.y as i16, p3.y as i16],
+                            game_color_to_sdl_color(entity.color.clone()),
+                        )
+                        .unwrap();
+                }
+                crate::common::EntityRole::Projectile => self
+                    .canvas
+                    .filled_circle(
+                        entity.pos.x as i16,
+                        entity.pos.y as i16,
+                        4,
+                        game_color_to_sdl_color(entity.color.clone()),
+                    )
+                    .unwrap(),
+            }
         }
 
         self.canvas.set_draw_color(pixels::Color::RGB(0, 255, 0));

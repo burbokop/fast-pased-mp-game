@@ -7,14 +7,14 @@ use std::{
 };
 
 use rand::{rng, Rng};
-use sdl2::{event::Event, keyboard::Keycode};
+use sdl2::{event::Event, keyboard::Keycode, mouse::MouseButton};
 
 use crate::{
     client::RenderModel,
     common::{
-        ClientToServerPackage, Color, Complex, EntityCreateInfo, GameState, PacketReader,
-        PacketWriter, PlayerConnectedPackage, PlayerInputPackage, Point, ServerToClientPackage,
-        Vector,
+        ClientToServerPackage, Color, Complex, EntityCreateInfo, EntityRole, GameState,
+        PacketReader, PacketWriter, PlayerConnectedPackage, PlayerInputPackage, Point,
+        ServerToClientPackage, Vector,
     },
 };
 
@@ -87,7 +87,7 @@ impl Networker {
                     self.write_package(ClientToServerPackage::PlayerConnected(
                         PlayerConnectedPackage {
                             entity_create_info: EntityCreateInfo {
-                                pos: Point { x: 500, y: 500 },
+                                pos: Point { x: 500., y: 500. },
                                 rot: Complex { r: 1., i: 0. },
                                 color: Color {
                                     a: rng.random(),
@@ -95,6 +95,7 @@ impl Networker {
                                     g: rng.random(),
                                     b: rng.random(),
                                 },
+                                role: EntityRole::Character,
                             },
                         },
                     ))
@@ -103,7 +104,11 @@ impl Networker {
                 ServerToClientPackage::Broadcast(broadcast_package) => {
                     let player_entity_copy = self
                         .player_id
-                        .map(|id| game_state_queue.prediction.find_by_player_id_mut(id))
+                        .map(|id| {
+                            game_state_queue
+                                .prediction
+                                .find_character_by_player_id_mut(id)
+                        })
                         .flatten()
                         .map(|x| x.clone());
 
@@ -117,7 +122,10 @@ impl Networker {
                         {
                             game_state_queue
                                 .prediction
-                                .add_or_replace_by_player_id(player_id, player_entity_copy)
+                                .add_or_replace_character_by_player_id(
+                                    player_id,
+                                    player_entity_copy,
+                                )
                         }
                     }
 
@@ -148,6 +156,8 @@ struct Controlls {
     up_pressed: bool,
     down_pressed: bool,
     mouse_pos: Point,
+    left_mouse_pressed: bool,
+    old_left_mouse_pressed: bool,
 }
 
 impl Controlls {
@@ -157,7 +167,9 @@ impl Controlls {
             right_pressed: false,
             up_pressed: false,
             down_pressed: false,
-            mouse_pos: Point { x: 0, y: 0 },
+            mouse_pos: Point { x: 0., y: 0. },
+            left_mouse_pressed: false,
+            old_left_mouse_pressed: false,
         }
     }
 }
@@ -218,15 +230,29 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
                     ..
                 } => controlls.right_pressed = false,
 
-                Event::MouseMotion { x, y, .. } => controlls.mouse_pos = Point { x, y },
+                Event::MouseMotion { x, y, .. } => {
+                    controlls.mouse_pos = Point {
+                        x: x as f32,
+                        y: y as f32,
+                    }
+                }
+                Event::MouseButtonDown {
+                    mouse_btn: MouseButton::Left,
+                    ..
+                } => controlls.left_mouse_pressed = true,
+                Event::MouseButtonUp {
+                    mouse_btn: MouseButton::Left,
+                    ..
+                } => controlls.left_mouse_pressed = false,
+
                 _ => {}
             }
         }
 
         if let Some(player_id) = networker.player_id {
-            let velocity = 5;
+            let velocity = 5.;
 
-            let mut movement = Vector { x: 0, y: 0 };
+            let mut movement = Vector { x: 0., y: 0. };
 
             if controlls.left_pressed {
                 movement.x = -velocity;
@@ -239,22 +265,32 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
                 movement.y = velocity;
             }
 
-            if let Some(mut entity) = game_state_queue.prediction.find_by_player_id_mut(player_id) {
+            if let Some(mut entity) = game_state_queue
+                .prediction
+                .find_character_by_player_id_mut(player_id)
+            {
                 entity.pos.x = entity.pos.x + movement.x;
                 entity.pos.y = entity.pos.y + movement.y;
                 let old_rot = entity.rot;
                 entity.rot = (controlls.mouse_pos - entity.pos).normalize();
 
-                if movement.x != 0 || movement.y != 0 || entity.rot != old_rot {
+                if movement.x != 0.
+                    || movement.y != 0.
+                    || entity.rot != old_rot
+                    || controlls.old_left_mouse_pressed != controlls.left_mouse_pressed
+                {
                     last_sequence_number += 1;
                     networker
                         .write_package(ClientToServerPackage::PlayerInput(PlayerInputPackage {
                             sequence_number: last_sequence_number,
                             movement,
                             rotation: entity.rot,
+                            left_mouse_pressed: controlls.left_mouse_pressed,
                         }))
                         .unwrap();
                 }
+
+                controlls.old_left_mouse_pressed = controlls.left_mouse_pressed
             }
         }
 
