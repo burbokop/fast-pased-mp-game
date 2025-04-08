@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::common::{
-    BroadcastPackage, ClientToServerPackage, EntityCreateInfo, EntityRole, GameState, InitPackage,
-    PacketReader, PacketWriter, ServerToClientPackage,
+    BroadcastPackage, ClientToServerPackage, Collide as _, EntityCreateInfo, EntityRole, GameState,
+    InitPackage, PacketReader, PacketWriter, Segments as _, ServerToClientPackage,
 };
 
 pub(crate) fn exec_server(port: u16) {
@@ -77,6 +77,14 @@ pub(crate) fn exec_server(port: u16) {
                             entity.pos.x = entity.pos.x + package.movement.x;
                             entity.pos.y = entity.pos.y + package.movement.y;
                             entity.rot = package.rotation;
+
+                            for bound in game_state.world_bounds().edges() {
+                                if let Some(exit_vec) =
+                                    entity.vertices().segments().collide(&[bound])
+                                {
+                                    entity.pos += exit_vec;
+                                }
+                            }
 
                             last_sequence_number = package.sequence_number;
                             left_mouse_pressed = package.left_mouse_pressed

@@ -45,6 +45,15 @@ impl Entity {
             role: b.role,
         }
     }
+
+    pub(crate) fn vertices(&self) -> [Point; 4] {
+        [
+            self.pos + Vector { x: -8., y: -8. } * self.rot,
+            self.pos + Vector { x: 8., y: -8. } * self.rot,
+            self.pos + Vector { x: 8., y: 8. } * self.rot,
+            self.pos + Vector { x: -8., y: 8. } * self.rot,
+        ]
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -159,54 +168,55 @@ impl GameState {
         self.entities.retain_mut(|e| {
             let mut e = e.borrow_mut();
 
-            if e.role == EntityRole::Projectile {
-                let velosity = 200.;
+            match e.role {
+                EntityRole::Character => true,
+                EntityRole::Projectile => {
+                    let velosity = 200.;
 
-                let motion_segment = Segment {
-                    p0: e.pos,
-                    p1: e.pos + Vector::polar(e.rot, velosity * 2. * dt.as_secs_f32()),
-                };
+                    let motion_segment = Segment {
+                        p0: e.pos,
+                        p1: e.pos + Vector::polar(e.rot, velosity * 2. * dt.as_secs_f32()),
+                    };
 
-                for (i, edge) in self.world_bounds.edges().into_iter().enumerate() {
-                    if let Some(r) = edge.ray_cast(motion_segment) {
-                        if r.intersects() {
-                            match i {
-                                0 => {
-                                    e.rot = Complex {
-                                        r: e.rot.r,
-                                        i: e.rot.i.abs(),
+                    for (i, edge) in self.world_bounds.edges().into_iter().enumerate() {
+                        if let Some(r) = edge.ray_cast(motion_segment) {
+                            if r.intersects() {
+                                match i {
+                                    0 => {
+                                        e.rot = Complex {
+                                            r: e.rot.r,
+                                            i: e.rot.i.abs(),
+                                        }
                                     }
-                                }
-                                1 => {
-                                    e.rot = Complex {
-                                        r: -e.rot.r.abs(),
-                                        i: e.rot.i,
+                                    1 => {
+                                        e.rot = Complex {
+                                            r: -e.rot.r.abs(),
+                                            i: e.rot.i,
+                                        }
                                     }
-                                }
-                                2 => {
-                                    e.rot = Complex {
-                                        r: e.rot.r,
-                                        i: -e.rot.i.abs(),
+                                    2 => {
+                                        e.rot = Complex {
+                                            r: e.rot.r,
+                                            i: -e.rot.i.abs(),
+                                        }
                                     }
-                                }
-                                3 => {
-                                    e.rot = Complex {
-                                        r: e.rot.r.abs(),
-                                        i: e.rot.i,
+                                    3 => {
+                                        e.rot = Complex {
+                                            r: e.rot.r.abs(),
+                                            i: e.rot.i,
+                                        }
                                     }
+                                    _ => panic!("Wups!!!"),
                                 }
-                                _ => panic!("Wups!!!"),
+                                break;
                             }
-                            break;
                         }
                     }
+
+                    e.pos = e.pos + Vector::polar(e.rot, velosity * dt.as_secs_f32());
+
+                    now - e.birth_instant.unwrap() < Duration::from_secs(60)
                 }
-
-                e.pos = e.pos + Vector::polar(e.rot, velosity * dt.as_secs_f32());
-
-                now - e.birth_instant.unwrap() < Duration::from_secs(60)
-            } else {
-                true
             }
         });
     }

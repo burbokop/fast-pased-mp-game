@@ -12,9 +12,9 @@ use sdl2::{event::Event, keyboard::Keycode, mouse::MouseButton};
 use crate::{
     client::RenderModel,
     common::{
-        ClientToServerPackage, Color, Complex, EntityCreateInfo, EntityRole, GameState,
-        PacketReader, PacketWriter, PlayerConnectedPackage, PlayerInputPackage, Point,
-        ServerToClientPackage, Vector,
+        ClientToServerPackage, Collide as _, Color, Complex, EntityCreateInfo, EntityRole,
+        GameState, PacketReader, PacketWriter, PlayerConnectedPackage, PlayerInputPackage, Point,
+        Segments as _, ServerToClientPackage, Vector,
     },
 };
 
@@ -272,7 +272,13 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
                 entity.pos.x = entity.pos.x + movement.x;
                 entity.pos.y = entity.pos.y + movement.y;
                 let old_rot = entity.rot;
-                entity.rot = (controlls.mouse_pos - entity.pos).normalize();
+                entity.rot = (controlls.mouse_pos - entity.pos).normalize_into_complex();
+
+                for bound in game_state_queue.prediction.world_bounds().edges() {
+                    if let Some(exit_vec) = entity.vertices().segments().collide(&[bound]) {
+                        entity.pos += exit_vec;
+                    }
+                }
 
                 if movement.x != 0.
                     || movement.y != 0.

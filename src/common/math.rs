@@ -1,6 +1,5 @@
-use std::ops::{Add, Mul, Neg, Sub};
-
 use serde::{Deserialize, Serialize};
+use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 fn lerp_f32(a: f32, b: f32, t: f64) -> f32 {
     (a as f64 * (1. - t) + b as f64 * t) as f32
@@ -35,6 +34,10 @@ impl Add<Vector> for Point {
 }
 
 impl Point {
+    pub(crate) fn origin() -> Point {
+        Point { x: 0., y: 0. }
+    }
+
     pub(crate) fn lerp(a: Self, b: Self, t: f64) -> Self {
         Self {
             x: lerp_f32(a.x, b.x, t),
@@ -101,11 +104,33 @@ impl Vector {
         (self.x * rhs.x) + (self.y * rhs.y)
     }
 
-    pub(crate) fn normalize(self) -> Complex {
+    pub(crate) fn normalize(self) -> Self {
+        let len = self.len();
+        Self {
+            x: self.x as f32 / len,
+            y: self.y as f32 / len,
+        }
+    }
+
+    pub(crate) fn normalize_into_complex(self) -> Complex {
         let len = self.len();
         Complex {
             r: self.x as f32 / len,
             i: self.y as f32 / len,
+        }
+    }
+
+    pub(crate) fn left_perpendicular(self) -> Self {
+        Self {
+            x: -self.y,
+            y: self.x,
+        }
+    }
+
+    pub(crate) fn right_perpendicular(self) -> Self {
+        Self {
+            x: self.y,
+            y: -self.x,
         }
     }
 
@@ -114,6 +139,10 @@ impl Vector {
             x: rot.r * len,
             y: rot.i * len,
         }
+    }
+
+    pub(crate) fn project_on(self, axis: Vector) -> Vector {
+        (self.dot(axis) / axis.dot(axis)) * axis
     }
 }
 
@@ -124,6 +153,42 @@ impl Mul<Complex> for Vector {
         Self::Output {
             x: self.x as f32 * rhs.r - self.y as f32 * rhs.i,
             y: self.x as f32 * rhs.i + self.y as f32 * rhs.r,
+        }
+    }
+}
+
+impl SubAssign<Vector> for Point {
+    fn sub_assign(&mut self, rhs: Vector) {
+        self.x -= rhs.x;
+        self.y -= rhs.y;
+    }
+}
+
+impl AddAssign<Vector> for Point {
+    fn add_assign(&mut self, rhs: Vector) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+    }
+}
+
+impl Mul<f32> for Vector {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self::Output {
+            x: self.x * rhs,
+            y: self.y * rhs,
+        }
+    }
+}
+
+impl Mul<Vector> for f32 {
+    type Output = Vector;
+
+    fn mul(self, rhs: Vector) -> Self::Output {
+        Self::Output {
+            x: self * rhs.x,
+            y: self * rhs.y,
         }
     }
 }
@@ -190,6 +255,48 @@ impl RayCastScalars {
 }
 
 impl Segment {
+    pub(crate) fn vec(self) -> Vector {
+        self.p1 - self.p0
+    }
+
+    pub(crate) fn project_on(self, axis: Vector) -> Segment {
+        Segment {
+            p0: Point::origin() + (self.p0 - Point::origin()).project_on(axis),
+            p1: Point::origin() + (self.p1 - Point::origin()).project_on(axis),
+        }
+    }
+
+    /// Returns exit vector if segments intersect. Value is correct only if segments lie on the same line (Not on parallel lines).
+    fn exit_vec_while_intersects_on_the_same_line(&self, rhs: &Segment) -> Option<Vector> {
+        fn intersects_on_basis(s0: (f32, f32), s1: (f32, f32)) -> Option<f32> {
+            let s0 = (s0.0.min(s0.1), s0.0.max(s0.1));
+            let s1 = (s1.0.min(s1.1), s1.0.max(s1.1));
+
+            fn abs_min(a: f32, b: f32) -> f32 {
+                if a.abs() < b.abs() {
+                    a
+                } else {
+                    b
+                }
+            }
+
+            if s0.0 <= s1.1 && s1.0 <= s0.1 {
+                Some(abs_min(s1.1 - s0.0, s1.0 - s0.1))
+            } else {
+                None
+            }
+        }
+
+        if let (Some(x), Some(y)) = (
+            intersects_on_basis((self.p0.x, self.p1.x), (rhs.p0.x, rhs.p1.x)),
+            intersects_on_basis((self.p0.y, self.p1.y), (rhs.p0.y, rhs.p1.y)),
+        ) {
+            Some(Vector { x, y })
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn inverted(self) -> Self {
         Self {
             p0: self.p1,
@@ -277,5 +384,88 @@ impl Segment {
         let u = Vector::cross(ac, ab) / Vector::cross(ab, cd);
 
         Some(RayCastScalars { t, u })
+    }
+}
+
+pub(crate) trait Collide<Rhs = Self> {
+    fn collide(&self, rhs: &Rhs) -> Option<Vector>;
+}
+
+impl<const C0: usize, const C1: usize> Collide<[Segment; C1]> for [Segment; C0] {
+    fn collide(&self, rhs: &[Segment; C1]) -> Option<Vector> {
+        let axes: Vec<_> = self
+            .iter()
+            .chain(rhs.iter())
+            .map(|x| x.vec().left_perpendicular().normalize())
+            .collect();
+
+        let mut exit_vectors = Vec::with_capacity(axes.len());
+
+        for axis in axes {
+            let proj = |edges: &[Segment]| -> Segment {
+                fn min_point(p0: Point, p1: Point) -> Point {
+                    Point {
+                        x: p0.x.min(p1.x),
+                        y: p0.y.min(p1.y),
+                    }
+                }
+
+                fn max_point(p0: Point, p1: Point) -> Point {
+                    Point {
+                        x: p0.x.max(p1.x),
+                        y: p0.y.max(p1.y),
+                    }
+                }
+
+                edges
+                    .into_iter()
+                    .map(|edge| {
+                        let proj = edge.project_on(axis);
+
+                        [proj.p0, proj.p1]
+                    })
+                    .flatten()
+                    .fold(None, |m: Option<Segment>, x| {
+                        m.map_or(Some(Segment { p0: x, p1: x }), |Segment { p0, p1 }| {
+                            Some(Segment {
+                                p0: min_point(p0, x),
+                                p1: max_point(p1, x),
+                            })
+                        })
+                    })
+                    .unwrap()
+            };
+
+            let proj0 = proj(self);
+            let proj1 = proj(rhs);
+
+            if let Some(exit_vec) = proj0.exit_vec_while_intersects_on_the_same_line(&proj1) {
+                exit_vectors.push(exit_vec);
+            } else {
+                return None;
+            }
+        }
+
+        exit_vectors
+            .into_iter()
+            .min_by(|a, b| a.len().partial_cmp(&b.len()).unwrap())
+    }
+}
+
+pub(crate) trait Segments<const C: usize> {
+    fn segments(self) -> [Segment; C];
+}
+
+impl<const C: usize> Segments<C> for [Point; C] {
+    fn segments(self) -> [Segment; C] {
+        let mut i: usize = 0;
+        self.map(|p0| {
+            let r = Segment {
+                p0,
+                p1: self[(i + 1) % self.len()],
+            };
+            i += 1;
+            r
+        })
     }
 }
