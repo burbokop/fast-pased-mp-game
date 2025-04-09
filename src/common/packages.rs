@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Complex, EntityCreateInfo, GameState, Vector};
+use super::{Color, Complex, EntityCreateInfo, GameState, PlayerState, Vector};
 
 /// Sent from server to client when it is connected
 #[derive(Debug, Serialize, Deserialize)]
@@ -15,13 +15,17 @@ pub(crate) struct InitPackage {
 pub(crate) struct BroadcastPackage {
     pub(crate) sequence_number: u32,
     pub(crate) game_state: GameState,
+    pub(crate) player_state: PlayerState,
 }
 
 /// Sent from client to server after init package is received
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct PlayerConnectedPackage {
-    pub(crate) entity_create_info: EntityCreateInfo,
+    pub(crate) color: Color,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct RespawnRequestPackage {}
 
 /// Sent from client to server when player inputs something
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,13 +37,18 @@ pub(crate) struct PlayerInputPackage {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct KillPackage {}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum ServerToClientPackage {
     Init(InitPackage),
     Broadcast(BroadcastPackage),
+    Kill(KillPackage),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum ClientToServerPackage {
     PlayerConnected(PlayerConnectedPackage),
+    RespawnRequest(RespawnRequestPackage),
     PlayerInput(PlayerInputPackage),
 }

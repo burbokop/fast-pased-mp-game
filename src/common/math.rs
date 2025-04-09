@@ -93,7 +93,7 @@ pub(crate) struct Vector {
 
 impl Vector {
     pub(crate) fn len(&self) -> f32 {
-        (self.x as f32 * self.x as f32 + self.y as f32 * self.y as f32).sqrt()
+        (self.x * self.x + self.y * self.y).sqrt()
     }
 
     pub(crate) fn cross(self, rhs: Self) -> f32 {

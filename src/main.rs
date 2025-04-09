@@ -1,4 +1,5 @@
 #![feature(thread_id_value)]
+#![feature(duration_millis_float)]
 
 use std::net::SocketAddrV4;
 

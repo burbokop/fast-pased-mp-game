@@ -1,3 +1,10 @@
+use std::{
+    cell::{LazyCell, OnceCell},
+    rc::Rc,
+    sync::{Arc, OnceLock},
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
+
 use font_loader::system_fonts;
 use sdl2::{
     gfx::primitives::DrawRenderer,
@@ -10,7 +17,7 @@ use sdl2::{
     Sdl,
 };
 
-use crate::common::{Color, GameState, Rect};
+use crate::common::{Color, GameState, PlayerState, Rect};
 
 fn game_color_to_sdl_color(c: Color) -> pixels::Color {
     pixels::Color {
@@ -27,7 +34,7 @@ fn game_rect_to_sdl_rect(c: Rect) -> rect::Rect {
 
 struct OwnedFont {
     bytes: Box<Vec<u8>>,
-    ctx: Box<Sdl2TtfContext>,
+    ctx: Arc<Sdl2TtfContext>,
 }
 
 impl OwnedFont {
@@ -37,9 +44,13 @@ impl OwnedFont {
         point: rect::Point,
         color: pixels::Color,
         text: &str,
+        font_point_size: u16,
     ) {
         let rwops = RWops::from_bytes(&self.bytes[..]).unwrap();
-        let font = self.ctx.load_font_from_rwops(rwops, 12).unwrap();
+        let font = self
+            .ctx
+            .load_font_from_rwops(rwops, font_point_size)
+            .unwrap();
 
         let texture_creator = canvas.texture_creator();
         let surface = font
@@ -68,6 +79,11 @@ impl OwnedFont {
         let mut property = system_fonts::FontPropertyBuilder::new().monospace().build();
         let sysfonts = system_fonts::query_specific(&mut property);
 
+        static CTX_LOCK: OnceLock<Arc<Sdl2TtfContext>> = OnceLock::new();
+        let ctx = CTX_LOCK
+            .get_or_init(|| Arc::new(sdl2::ttf::init().map_err(|e| e.to_string()).unwrap()))
+            .clone();
+
         Self {
             bytes: Box::new(
                 system_fonts::get(
@@ -78,7 +94,7 @@ impl OwnedFont {
                 .unwrap()
                 .0,
             ),
-            ctx: Box::new(sdl2::ttf::init().map_err(|e| e.to_string()).unwrap()),
+            ctx,
         }
     }
 }
@@ -86,6 +102,7 @@ impl OwnedFont {
 pub(crate) struct RenderModel {
     canvas: Canvas<Window>,
     font: OwnedFont,
+    creation_instant: Instant,
 }
 
 impl RenderModel {
@@ -102,10 +119,18 @@ impl RenderModel {
         Ok(RenderModel {
             canvas: window.into_canvas().build().map_err(|e| e.to_string())?,
             font: OwnedFont::new(),
+            creation_instant: Instant::now(),
         })
     }
 
-    pub(crate) fn render(&mut self, game_state: &GameState, interpolation_value: f64) {
+    pub(crate) fn render(
+        &mut self,
+        game_state: &GameState,
+        player_state: &PlayerState,
+        interpolation_value: f64,
+    ) {
+        let now = Instant::now();
+
         self.canvas.set_draw_color(pixels::Color::RGB(255, 0, 0));
         self.canvas.clear();
 
@@ -132,7 +157,7 @@ impl RenderModel {
                     .filled_circle(
                         entity.pos.x as i16,
                         entity.pos.y as i16,
-                        4,
+                        entity.inscribed_circle_radius() as i16,
                         game_color_to_sdl_color(entity.color.clone()),
                     )
                     .unwrap(),
@@ -146,7 +171,19 @@ impl RenderModel {
             (40, 40).into(),
             pixels::Color::RGB(0, 255, 255),
             &format!("{:.2}", interpolation_value),
+            12,
         );
+
+        let window_size = self.canvas.window().size();
+        if player_state.killed {
+            self.font.draw_text(
+                &mut self.canvas,
+                (window_size.0 as i32 / 2, window_size.1 as i32 / 2).into(),
+                pixels::Color::RGB(255, 255, 0),
+                &format!("You are killed. SPACE to respawn"),
+                (10. * (((now - self.creation_instant).as_millis_f32() * 0.002).sin() + 2.)) as u16,
+            );
+        }
 
         self.canvas.present();
     }

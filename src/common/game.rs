@@ -1,3 +1,4 @@
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::{
     cell::{Ref, RefCell, RefMut},
@@ -46,6 +47,13 @@ impl Entity {
         }
     }
 
+    pub(crate) fn inscribed_circle_radius(&self) -> f32 {
+        match self.role {
+            EntityRole::Character => 8.,
+            EntityRole::Projectile => 4.,
+        }
+    }
+
     pub(crate) fn vertices(&self) -> [Point; 4] {
         [
             self.pos + Vector { x: -8., y: -8. } * self.rot,
@@ -69,6 +77,7 @@ pub(crate) struct GameState {
     entities: Vec<RefCell<Entity>>,
     world_bounds: Rect,
     next_entity_id: u32,
+    kills: Vec<u32>,
 }
 
 impl GameState {
@@ -82,11 +91,19 @@ impl GameState {
                 h: 600. - 64.,
             },
             next_entity_id: 0,
+            kills: Default::default(),
         }
     }
 
     pub(crate) fn world_bounds(&self) -> Rect {
         self.world_bounds
+    }
+
+    pub(crate) fn random_point_inside_bounds<R: Rng>(&self, rng: &mut R) -> Point {
+        Point {
+            x: rng.random_range(self.world_bounds.x..(self.world_bounds.x + self.world_bounds.w)),
+            y: rng.random_range(self.world_bounds.y..(self.world_bounds.y + self.world_bounds.h)),
+        }
     }
 
     pub(crate) fn create(&mut self, entity: EntityCreateInfo, player_id: NonZero<u64>) {
@@ -118,7 +135,7 @@ impl GameState {
             .iter()
             .find_map(|x| match x.try_borrow_mut().ok() {
                 Some(x) => {
-                    if x.player_id == player_id {
+                    if x.player_id == player_id && x.role == EntityRole::Character {
                         Some(x)
                     } else {
                         None
@@ -165,9 +182,8 @@ impl GameState {
 
     pub(crate) fn proceed(&mut self, dt: Duration) {
         let now = Instant::now();
-        self.entities.retain_mut(|e| {
+        self.entities.retain(|e| {
             let mut e = e.borrow_mut();
-
             match e.role {
                 EntityRole::Character => true,
                 EntityRole::Projectile => {
@@ -219,6 +235,56 @@ impl GameState {
                 }
             }
         });
+
+        for character in &self.entities {
+            let character = character.borrow_mut();
+            if character.role == EntityRole::Character {
+                for projectile in &self.entities {
+                    if let Ok(projectile) = projectile.try_borrow_mut() {
+                        if projectile.role == EntityRole::Projectile
+                            && (projectile.player_id != character.player_id
+                                || (now - projectile.birth_instant.unwrap())
+                                    > Duration::from_millis(200))
+                        {
+                            if (character.pos - projectile.pos).len()
+                                < (character.inscribed_circle_radius()
+                                    + projectile.inscribed_circle_radius())
+                            {
+                                self.kills.push(character.id);
+                                self.kills.push(projectile.id);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self.entities.retain(|e| {
+            let e = e.borrow();
+            if let Ok(index) = self.kills.binary_search_by_key(&e.id, |x| *x) {
+                if e.role == EntityRole::Projectile {
+                    self.kills.remove(index);
+                    return false;
+                }
+            }
+            true
+        });
+    }
+
+    pub(crate) fn account_kill(&mut self, player_id: NonZero<u64>) -> bool {
+        let orig_len = self.entities.len();
+        self.entities.retain(|e| {
+            let e = e.borrow();
+            if let Ok(index) = self.kills.binary_search_by_key(&e.id, |x| *x) {
+                if e.role == EntityRole::Character && e.player_id == player_id {
+                    self.kills.remove(index);
+                    return false;
+                }
+            }
+            true
+        });
+        orig_len != self.entities.len()
     }
 
     pub(crate) fn lerp_merge(
@@ -238,6 +304,26 @@ impl GameState {
             } else {
                 result.add_or_replace_by_id(b.id, b.clone());
             }
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct PlayerState {
+    pub(crate) color: Color,
+    pub(crate) killed: bool,
+}
+
+impl Default for PlayerState {
+    fn default() -> Self {
+        Self {
+            color: Color {
+                a: 0,
+                r: 0,
+                g: 0,
+                b: 0,
+            },
+            killed: Default::default(),
         }
     }
 }
