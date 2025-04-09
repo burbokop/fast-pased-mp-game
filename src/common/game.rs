@@ -32,6 +32,7 @@ pub(crate) struct Entity {
     pub(crate) rot: Complex,
     pub(crate) color: Color,
     pub(crate) role: EntityRole,
+    pub(crate) health: u8,
 }
 
 impl Entity {
@@ -44,6 +45,7 @@ impl Entity {
             rot: Complex::lerp(a.rot, b.rot, t),
             color: b.color,
             role: b.role,
+            health: b.health,
         }
     }
 
@@ -86,7 +88,7 @@ impl GameState {
             entities: vec![],
             world_bounds: Rect {
                 x: 32.,
-                y: 32.,
+                y: 32. + 16.,
                 w: 800. - 64.,
                 h: 600. - 64.,
             },
@@ -115,6 +117,10 @@ impl GameState {
             rot: entity.rot,
             color: entity.color,
             role: entity.role,
+            health: match entity.role {
+                EntityRole::Character => 3,
+                EntityRole::Projectile => 1,
+            },
         }));
         self.next_entity_id += 1;
     }
@@ -237,10 +243,10 @@ impl GameState {
         });
 
         for character in &self.entities {
-            let character = character.borrow_mut();
+            let mut character = character.borrow_mut();
             if character.role == EntityRole::Character {
                 for projectile in &self.entities {
-                    if let Ok(projectile) = projectile.try_borrow_mut() {
+                    if let Ok(mut projectile) = projectile.try_borrow_mut() {
                         if projectile.role == EntityRole::Projectile
                             && (projectile.player_id != character.player_id
                                 || (now - projectile.birth_instant.unwrap())
@@ -249,9 +255,19 @@ impl GameState {
                             if (character.pos - projectile.pos).len()
                                 < (character.inscribed_circle_radius()
                                     + projectile.inscribed_circle_radius())
+                                && character.health != 0
+                                && projectile.health != 0
                             {
-                                self.kills.push(character.id);
-                                self.kills.push(projectile.id);
+                                character.health -= 1;
+                                projectile.health -= 1;
+
+                                if character.health == 0 {
+                                    self.kills.push(character.id);
+                                }
+
+                                if projectile.health == 0 {
+                                    self.kills.push(projectile.id);
+                                }
                                 break;
                             }
                         }
@@ -262,7 +278,7 @@ impl GameState {
 
         self.entities.retain(|e| {
             let e = e.borrow();
-            if let Ok(index) = self.kills.binary_search_by_key(&e.id, |x| *x) {
+            if let Some(index) = self.kills.iter().position(|x| *x == e.id) {
                 if e.role == EntityRole::Projectile {
                     self.kills.remove(index);
                     return false;
@@ -276,8 +292,8 @@ impl GameState {
         let orig_len = self.entities.len();
         self.entities.retain(|e| {
             let e = e.borrow();
-            if let Ok(index) = self.kills.binary_search_by_key(&e.id, |x| *x) {
-                if e.role == EntityRole::Character && e.player_id == player_id {
+            if e.role == EntityRole::Character && e.player_id == player_id {
+                if let Some(index) = self.kills.iter().position(|x| *x == e.id) {
                     self.kills.remove(index);
                     return false;
                 }

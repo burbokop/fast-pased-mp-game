@@ -1,5 +1,6 @@
 use std::{
     cell::{LazyCell, OnceCell},
+    num::NonZero,
     rc::Rc,
     sync::{Arc, OnceLock},
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -17,7 +18,7 @@ use sdl2::{
     Sdl,
 };
 
-use crate::common::{Color, GameState, PlayerState, Rect};
+use crate::common::{Color, GameState, PlayerState, Point, Rect};
 
 fn game_color_to_sdl_color(c: Color) -> pixels::Color {
     pixels::Color {
@@ -30,6 +31,64 @@ fn game_color_to_sdl_color(c: Color) -> pixels::Color {
 
 fn game_rect_to_sdl_rect(c: Rect) -> rect::Rect {
     rect::Rect::new(c.x as i32, c.y as i32, c.w as u32, c.h as u32)
+}
+
+fn heart_vertices(p: Point, k: f32) -> [Point; 14] {
+    [
+        Point { x: p.x, y: p.y - k },
+        Point {
+            x: p.x + k,
+            y: p.y - k * 2.,
+        },
+        Point {
+            x: p.x + k * 2.,
+            y: p.y - k * 2.,
+        },
+        Point {
+            x: p.x + k * 3.,
+            y: p.y - k,
+        },
+        Point {
+            x: p.x + k * 3.,
+            y: p.y,
+        },
+        Point {
+            x: p.x + k * 2.,
+            y: p.y + k,
+        },
+        Point {
+            x: p.x + k,
+            y: p.y + k * 2.,
+        },
+        Point {
+            x: p.x,
+            y: p.y + k * 3.,
+        },
+        Point {
+            x: p.x - k,
+            y: p.y + k * 2.,
+        },
+        Point {
+            x: p.x - k * 2.,
+            y: p.y + k,
+        },
+        Point {
+            x: p.x - k * 3.,
+            y: p.y,
+        },
+        Point {
+            x: p.x - k * 3.,
+            y: p.y - k,
+        },
+        Point {
+            x: p.x - k * 2.,
+            y: p.y - k * 2.,
+        },
+        Point {
+            x: p.x - k,
+            y: p.y - k * 2.,
+        },
+    ]
 }
 
 struct OwnedFont {
@@ -110,7 +169,7 @@ impl RenderModel {
         let video_subsystem = sdl_context.video()?;
 
         let window = video_subsystem
-            .window("Fast pased mp game client", 800, 600)
+            .window("Fast pased mp game client", 800, 616)
             .position_centered()
             .opengl()
             .build()
@@ -127,7 +186,7 @@ impl RenderModel {
         &mut self,
         game_state: &GameState,
         player_state: &PlayerState,
-        interpolation_value: f64,
+        player_id: NonZero<u64>,
     ) {
         let now = Instant::now();
 
@@ -166,13 +225,25 @@ impl RenderModel {
 
         self.canvas.set_draw_color(pixels::Color::RGB(0, 255, 0));
 
-        self.font.draw_text(
-            &mut self.canvas,
-            (40, 40).into(),
-            pixels::Color::RGB(0, 255, 255),
-            &format!("{:.2}", interpolation_value),
-            12,
-        );
+        if let Some(character) = game_state.find_character_by_player_id_mut(player_id) {
+            for i in 0..character.health {
+                let vertices = heart_vertices(
+                    Point {
+                        x: 22. + i as f32 * 7. * 4.,
+                        y: 22.,
+                    },
+                    4.,
+                );
+
+                self.canvas
+                    .filled_polygon(
+                        &vertices.map(|p| p.x as i16),
+                        &vertices.map(|p| p.y as i16),
+                        pixels::Color::RGB(255, 255, 255),
+                    )
+                    .unwrap();
+            }
+        }
 
         let window_size = self.canvas.window().size();
         if player_state.killed {

@@ -61,9 +61,9 @@ pub(crate) fn exec_server(port: u16) {
             loop {
                 if let Some(data) = reader.read(&mut stream)?.next() {
                     let package: ClientToServerPackage = serde_json::from_slice(&data).unwrap();
-                    println!("got package: {:?}", package);
                     match package {
                         ClientToServerPackage::PlayerConnected(player_connected_package) => {
+                            println!("Player connected: {}", player_id);
                             player_state.color = player_connected_package.color;
 
                             let mut game_state = game_state.lock().unwrap();

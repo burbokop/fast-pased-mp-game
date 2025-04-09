@@ -118,12 +118,13 @@ impl Networker {
                         if let (Some(player_id), Some(player_entity_copy)) =
                             (self.player_id, player_entity_copy)
                         {
-                            game_state_queue
+                            if let Some(mut entity) = game_state_queue
                                 .prediction
-                                .add_or_replace_character_by_player_id(
-                                    player_id,
-                                    player_entity_copy,
-                                )
+                                .find_character_by_player_id_mut(player_id)
+                            {
+                                entity.pos = player_entity_copy.pos;
+                                entity.rot = player_entity_copy.rot;
+                            }
                         }
                     }
 
@@ -131,7 +132,10 @@ impl Networker {
                     self.last_broadcast_insterval = now - self.last_broadcast_instant;
                     self.last_broadcast_instant = now;
                 }
-                ServerToClientPackage::Kill(_) => player_state.killed = true,
+                ServerToClientPackage::Kill(_) => {
+                    println!("Kill package received");
+                    player_state.killed = true
+                }
             }
         }
 
@@ -330,11 +334,9 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
             )
             .unwrap();
 
-        render_model.render(
-            &game_state_queue.prediction,
-            &player_state,
-            networker.interpolation_value(),
-        );
+        if let Some(player_id) = networker.player_id {
+            render_model.render(&game_state_queue.prediction, &player_state, player_id);
+        }
 
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
