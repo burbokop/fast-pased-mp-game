@@ -12,10 +12,9 @@ use sdl2::{event::Event, keyboard::Keycode, mouse::MouseButton};
 use crate::{
     client::RenderModel,
     common::{
-        ClientToServerPackage, Collide as _, Color, Complex, EntityCreateInfo, EntityRole,
-        GameState, PacketReader, PacketWriter, PlayerConnectedPackage, PlayerInputPackage,
-        PlayerState, PlayerWeapon, Point, RespawnRequestPackage, Segments as _,
-        ServerToClientPackage, Vector,
+        ClientToServerPackage, Collide as _, Color, GameState, PacketReader, PacketWriter,
+        PlayerConnectedPackage, PlayerInputPackage, PlayerState, PlayerWeapon, Point,
+        RespawnRequestPackage, Segments as _, ServerToClientPackage, Vector,
     },
 };
 

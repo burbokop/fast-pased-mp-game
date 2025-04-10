@@ -1,8 +1,6 @@
-use std::num::NonZero;
-
-use serde::{Deserialize, Serialize};
-
 use super::{Color, Complex, GameState, PlayerState, Vector};
+use serde::{Deserialize, Serialize};
+use std::num::NonZero;
 
 /// Sent from server to client when it is connected
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,14 +27,16 @@ pub(crate) enum PlayerWeapon {
     BallGun,
     PulseGun,
     RayGun,
+    Shield,
 }
 
 impl PlayerWeapon {
     pub(crate) fn rotated_left(self) -> Self {
         match self {
-            PlayerWeapon::BallGun => PlayerWeapon::RayGun,
+            PlayerWeapon::BallGun => PlayerWeapon::Shield,
             PlayerWeapon::PulseGun => PlayerWeapon::BallGun,
             PlayerWeapon::RayGun => PlayerWeapon::PulseGun,
+            PlayerWeapon::Shield => PlayerWeapon::RayGun,
         }
     }
 
@@ -44,7 +44,8 @@ impl PlayerWeapon {
         match self {
             PlayerWeapon::BallGun => PlayerWeapon::PulseGun,
             PlayerWeapon::PulseGun => PlayerWeapon::RayGun,
-            PlayerWeapon::RayGun => PlayerWeapon::BallGun,
+            PlayerWeapon::RayGun => PlayerWeapon::Shield,
+            PlayerWeapon::Shield => PlayerWeapon::BallGun,
         }
     }
 }

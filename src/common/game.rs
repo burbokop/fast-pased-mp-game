@@ -8,7 +8,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{Collide as _, Complex, DynSizeSegments as _, Point, Rect, Segment, Segments, Vector};
+use super::{
+    Collide as _, Complex, DynSizeSegments as _, Point, Rect, Segment, Segments, Vector, I,
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct Color {
@@ -16,6 +18,22 @@ pub(crate) struct Color {
     pub(crate) r: u8,
     pub(crate) g: u8,
     pub(crate) b: u8,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+pub(crate) struct Shield {
+    pub(crate) width: f32,
+    pub(crate) dst_from_character: f32,
+}
+
+impl Shield {
+    pub(crate) fn segment(&self, character_pos: Point, character_rot: Complex) -> Segment {
+        let c = character_pos + Vector::polar(character_rot, self.dst_from_character);
+        Segment {
+            p0: c + Vector::polar(character_rot * (-I), self.width / 2.),
+            p1: c + Vector::polar(character_rot * I, self.width / 2.),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
@@ -36,6 +54,7 @@ pub(crate) enum CharacterWeapon {
         velocity: f32,
         projectile_health: u8,
     },
+    Shield(Shield),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -237,8 +256,19 @@ impl GameState {
         position: &mut Point,
         rotation: &mut Complex,
         bounds: &Rect,
+        shields: &[Segment],
         motion_segment: Segment,
     ) -> bool {
+        for shield in shields {
+            if let Some(r) = shield.ray_cast(motion_segment) {
+                if r.intersects() {
+                    *position = r.intersection_point_u_mul(0.99);
+                    *rotation = rotation.reflect_from(shield.vec());
+                    return true;
+                }
+            }
+        }
+
         for (i, edge) in bounds.edges().into_iter().enumerate() {
             if let Some(r) = edge.ray_cast(motion_segment) {
                 if r.intersects() {
@@ -274,11 +304,29 @@ impl GameState {
                 }
             }
         }
+
         false
     }
 
     pub(crate) fn proceed(&mut self, dt: Duration) {
         let now = Instant::now();
+
+        let shields: Vec<Segment> = self
+            .entities
+            .iter()
+            .map(|x| {
+                let x = x.borrow();
+                match &x.role {
+                    EntityRole::Character { weapon } => match weapon {
+                        CharacterWeapon::Shield(shield) => Some(shield.segment(x.pos, x.rot)),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            })
+            .flatten()
+            .collect();
+
         self.entities.retain(|entity| {
             let mut entity = entity.borrow_mut();
             match entity.role.clone() {
@@ -300,6 +348,7 @@ impl GameState {
                         reflection_points: Option<&mut VecDeque<Point>>,
                         tail: bool,
                         bounds: &Rect,
+                        shields: &[Segment],
                         velosity: f32,
                         dt: &Duration,
                     ) {
@@ -308,7 +357,7 @@ impl GameState {
                             p1: *position
                                 + Vector::polar(*rotation, velosity * 2. * dt.as_secs_f32()),
                         };
-                        if GameState::reflect(position, rotation, bounds, motion_segment) {
+                        if GameState::reflect(position, rotation, bounds, shields, motion_segment) {
                             if let Some(reflection_points) = reflection_points {
                                 if tail {
                                     reflection_points.pop_front();
@@ -340,6 +389,7 @@ impl GameState {
                                         Some(reflection_points),
                                         false,
                                         &self.world_bounds,
+                                        &shields,
                                         velosity,
                                         &dt,
                                     );
@@ -352,6 +402,7 @@ impl GameState {
                                         Some(reflection_points),
                                         true,
                                         &self.world_bounds,
+                                        &shields,
                                         velosity,
                                         &dt,
                                     );
@@ -366,6 +417,7 @@ impl GameState {
                                     None,
                                     false,
                                     &self.world_bounds,
+                                    &shields,
                                     velosity,
                                     &dt,
                                 );

@@ -63,6 +63,8 @@ pub(crate) struct Complex {
     pub(crate) i: f32,
 }
 
+pub(crate) static I: Complex = Complex { r: 0., i: 1. };
+
 impl Complex {
     pub(crate) fn lerp(a: Self, b: Self, t: f64) -> Self {
         Self {
@@ -81,6 +83,14 @@ impl Complex {
         Self {
             r: self.r,
             i: -self.i,
+        }
+    }
+
+    pub(crate) fn reflect_from(self, l: Vector) -> Self {
+        let reflection = Vector::polar(self, 1.).reflect_from(l);
+        Self {
+            r: reflection.x,
+            i: reflection.y,
         }
     }
 }
@@ -155,6 +165,43 @@ impl Vector {
     pub(crate) fn project_on(self, axis: Vector) -> Vector {
         (self.dot(axis) / axis.dot(axis)) * axis
     }
+
+    pub(crate) fn reflect_from(self, axis: Vector) -> Self {
+        2. * self.project_on(axis) - self
+    }
+}
+
+impl Add for Vector {
+    type Output = Self;
+
+    fn add(self, rhs: Vector) -> Self::Output {
+        Self::Output {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl Sub for Vector {
+    type Output = Self;
+
+    fn sub(self, rhs: Vector) -> Self::Output {
+        Self::Output {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl Mul<Complex> for Complex {
+    type Output = Self;
+
+    fn mul(self, rhs: Complex) -> Self::Output {
+        Self::Output {
+            r: self.r * rhs.r - self.i * rhs.i,
+            i: self.r * rhs.i + self.i * rhs.r,
+        }
+    }
 }
 
 impl Mul<Complex> for Vector {
@@ -162,8 +209,8 @@ impl Mul<Complex> for Vector {
 
     fn mul(self, rhs: Complex) -> Self::Output {
         Self::Output {
-            x: self.x as f32 * rhs.r - self.y as f32 * rhs.i,
-            y: self.x as f32 * rhs.i + self.y as f32 * rhs.r,
+            x: self.x * rhs.r - self.y * rhs.i,
+            y: self.x * rhs.i + self.y * rhs.r,
         }
     }
 }
@@ -267,6 +314,14 @@ impl RayCastScalars {
 
     pub(crate) fn intersection_point(&self) -> Point {
         self.segments.0.p0 + (self.segments.0.p1 - self.segments.0.p0) * self.t
+    }
+
+    pub(crate) fn intersection_point_t_mul(&self, c: f32) -> Point {
+        self.segments.0.p0 + (self.segments.0.p1 - self.segments.0.p0) * self.t * c
+    }
+
+    pub(crate) fn intersection_point_u_mul(&self, c: f32) -> Point {
+        self.segments.1.p0 + (self.segments.1.p1 - self.segments.1.p0) * self.u * c
     }
 }
 

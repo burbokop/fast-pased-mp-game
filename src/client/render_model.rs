@@ -1,25 +1,21 @@
-use std::{
-    cell::{LazyCell, OnceCell},
-    num::NonZero,
-    rc::Rc,
-    sync::{Arc, OnceLock},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+use crate::common::{
+    CharacterWeapon, Color, EntityRole, GameState, PlayerState, PlayerWeapon, Point,
+    ProjectileKind, Rect,
 };
-
 use font_loader::system_fonts;
 use sdl2::{
     gfx::primitives::DrawRenderer,
-    pixels,
-    rect::{self},
+    pixels, rect,
     render::{Canvas, TextureQuery},
     rwops::RWops,
     ttf::Sdl2TtfContext,
     video::Window,
     Sdl,
 };
-
-use crate::common::{
-    Color, EntityRole, GameState, PlayerState, PlayerWeapon, Point, ProjectileKind, Rect, Vector,
+use std::{
+    num::NonZero,
+    sync::{Arc, OnceLock},
+    time::Instant,
 };
 
 fn game_color_to_sdl_color(c: Color) -> pixels::Color {
@@ -203,7 +199,7 @@ impl RenderModel {
 
         for entity in game_state.entities() {
             match &entity.role {
-                EntityRole::Character { .. } => {
+                EntityRole::Character { weapon } => {
                     let v = entity.vertices();
 
                     self.canvas
@@ -213,6 +209,25 @@ impl RenderModel {
                             game_color_to_sdl_color(entity.color.clone()),
                         )
                         .unwrap();
+
+                    match weapon {
+                        CharacterWeapon::BallGun { .. } => {}
+                        CharacterWeapon::RayGun { .. } => {}
+                        CharacterWeapon::Shield(shield) => {
+                            let seg = shield.segment(entity.pos, entity.rot);
+
+                            self.canvas
+                                .thick_line(
+                                    seg.p0.x as i16,
+                                    seg.p0.y as i16,
+                                    seg.p1.x as i16,
+                                    seg.p1.y as i16,
+                                    2,
+                                    game_color_to_sdl_color(entity.color.clone()),
+                                )
+                                .unwrap();
+                        }
+                    }
                 }
                 EntityRole::Projectile { kind } => match kind {
                     ProjectileKind::Ball { radius, .. } => self
@@ -286,7 +301,7 @@ impl RenderModel {
 
             self.font.draw_text(
                 &mut self.canvas,
-                (300, 500).into(),
+                (200, 500).into(),
                 if weapon == PlayerWeapon::BallGun {
                     pixels::Color::RGB(255, 255, 0)
                 } else {
@@ -299,7 +314,7 @@ impl RenderModel {
 
             self.font.draw_text(
                 &mut self.canvas,
-                (400, 500).into(),
+                (300, 500).into(),
                 if weapon == PlayerWeapon::PulseGun {
                     pixels::Color::RGB(255, 255, 0)
                 } else {
@@ -312,7 +327,7 @@ impl RenderModel {
 
             self.font.draw_text(
                 &mut self.canvas,
-                (500, 500).into(),
+                (400, 500).into(),
                 if weapon == PlayerWeapon::RayGun {
                     pixels::Color::RGB(255, 255, 0)
                 } else {
@@ -320,6 +335,28 @@ impl RenderModel {
                 },
                 &format!("Ray gun"),
                 (16. * (((now - self.creation_instant).as_millis_f32() * 0.001 + 2.).sin() / 8.
+                    + 1.)) as u16,
+            );
+
+            self.font.draw_text(
+                &mut self.canvas,
+                (500, 500).into(),
+                if weapon == PlayerWeapon::Shield {
+                    pixels::Color::RGB(255, 255, 0)
+                } else {
+                    pixels::Color::RGB(0, 255, 0)
+                },
+                &format!("Shield"),
+                (16. * (((now - self.creation_instant).as_millis_f32() * 0.001 + 3.).sin() / 8.
+                    + 1.)) as u16,
+            );
+
+            self.font.draw_text(
+                &mut self.canvas,
+                (600, 500).into(),
+                pixels::Color::RGB(0, 255, 0),
+                &format!("Coming soon"),
+                (16. * (((now - self.creation_instant).as_millis_f32() * 0.001 + 4.).sin() / 8.
                     + 1.)) as u16,
             );
         }

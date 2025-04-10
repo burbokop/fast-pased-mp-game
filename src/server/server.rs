@@ -10,7 +10,7 @@ use rand::rng;
 use crate::common::{
     BroadcastPackage, CharacterWeapon, ClientToServerPackage, Collide as _, Complex,
     EntityCreateInfo, EntityRole, GameState, InitPackage, KillPackage, PacketReader, PacketWriter,
-    PlayerState, PlayerWeapon, ProjectileKind, Segments as _, ServerToClientPackage,
+    PlayerState, PlayerWeapon, ProjectileKind, Segments as _, ServerToClientPackage, Shield,
 };
 
 fn character_weapon_from_player_weapon(weapon: PlayerWeapon) -> CharacterWeapon {
@@ -39,6 +39,10 @@ fn character_weapon_from_player_weapon(weapon: PlayerWeapon) -> CharacterWeapon 
             velocity: 2000.,
             projectile_health: 16,
         },
+        PlayerWeapon::Shield => CharacterWeapon::Shield(Shield {
+            width: 48.,
+            dst_from_character: 32.,
+        }),
     }
 }
 
@@ -246,6 +250,7 @@ pub(crate) fn exec_server(port: u16) {
                                         last_projectile_instant = now;
                                     }
                                 }
+                                CharacterWeapon::Shield { .. } => {}
                             },
                             EntityRole::Projectile { .. } => panic!("Woops!"),
                         }
