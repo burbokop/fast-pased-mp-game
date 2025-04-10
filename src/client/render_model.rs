@@ -213,7 +213,7 @@ impl RenderModel {
                     match weapon {
                         CharacterWeapon::BallGun { .. } => {}
                         CharacterWeapon::RayGun { .. } => {}
-                        CharacterWeapon::Shield(shield) => {
+                        CharacterWeapon::Shield{ shield, .. } => {
                             let seg = shield.segment(entity.pos, entity.rot);
 
                             self.canvas

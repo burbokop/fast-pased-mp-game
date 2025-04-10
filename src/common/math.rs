@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 fn lerp_f32(a: f32, b: f32, t: f64) -> f32 {
     (a as f64 * (1. - t) + b as f64 * t) as f32
@@ -66,6 +66,14 @@ pub(crate) struct Complex {
 pub(crate) static I: Complex = Complex { r: 0., i: 1. };
 
 impl Complex {
+    pub(crate) fn from_rad(v: f32) -> Self {
+        Self { r:v.cos(), i: v.sin() }
+    }
+
+    pub(crate) fn len(&self) -> f32 {
+        (self.r * self.r + self.i * self.i).sqrt()
+    }
+
     pub(crate) fn lerp(a: Self, b: Self, t: f64) -> Self {
         Self {
             r: lerp_f32(a.r, b.r, t),
@@ -91,6 +99,14 @@ impl Complex {
         Self {
             r: reflection.x,
             i: reflection.y,
+        }
+    }
+
+    pub(crate) fn normalize(self) -> Self {
+        let len = self.len();
+        Self {
+            r: self.r / len,
+            i: self.i / len,
         }
     }
 }
@@ -171,6 +187,12 @@ impl Vector {
     }
 }
 
+impl  MulAssign for Complex {
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = *self * rhs;
+    }
+}
+
 impl Add for Vector {
     type Output = Self;
 
@@ -200,6 +222,28 @@ impl Mul<Complex> for Complex {
         Self::Output {
             r: self.r * rhs.r - self.i * rhs.i,
             i: self.r * rhs.i + self.i * rhs.r,
+        }
+    }
+}
+
+impl Mul<f32> for Complex {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self::Output {
+            r: self.r * rhs,
+            i: self.i * rhs,
+        }
+    }
+}
+
+impl Mul<Complex> for f32 {
+    type Output = Complex;
+
+    fn mul(self, rhs: Complex) -> Self::Output {
+        Self::Output {
+            r: self * rhs.r,
+            i: self * rhs.i,
         }
     }
 }

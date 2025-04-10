@@ -1,4 +1,5 @@
 use std::{
+    f32::consts::PI,
     net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
     sync::{Arc, Mutex},
     thread,
@@ -11,6 +12,7 @@ use crate::common::{
     BroadcastPackage, CharacterWeapon, ClientToServerPackage, Collide as _, Complex,
     EntityCreateInfo, EntityRole, GameState, InitPackage, KillPackage, PacketReader, PacketWriter,
     PlayerState, PlayerWeapon, ProjectileKind, Segments as _, ServerToClientPackage, Shield,
+    Vector, I,
 };
 
 fn character_weapon_from_player_weapon(weapon: PlayerWeapon) -> CharacterWeapon {
@@ -39,10 +41,10 @@ fn character_weapon_from_player_weapon(weapon: PlayerWeapon) -> CharacterWeapon 
             velocity: 2000.,
             projectile_health: 16,
         },
-        PlayerWeapon::Shield => CharacterWeapon::Shield(Shield {
+        PlayerWeapon::Shield => CharacterWeapon::Shield{ shield: Shield {
             width: 48.,
             dst_from_character: 32.,
-        }),
+        }, self_destruct_timeout: Duration::from_secs(2) },
     }
 }
 
@@ -75,6 +77,7 @@ pub(crate) fn exec_server(port: u16) {
             let player_id = std::thread::current().id().as_u64();
             let mut player_state: PlayerState = Default::default();
             let mut left_mouse_pressed: bool = false;
+            let mut left_mouse_pressed_instant: Instant = Instant::now();
 
             let mut stream = stream.unwrap();
             stream.set_nonblocking(true).unwrap();
@@ -130,6 +133,7 @@ pub(crate) fn exec_server(port: u16) {
             let mut last_projectile_instant = Instant::now();
 
             loop {
+                let now = Instant::now();
                 for data in reader.read(&mut stream)? {
                     let package: ClientToServerPackage = serde_json::from_slice(&data).unwrap();
                     match package {
@@ -155,6 +159,11 @@ pub(crate) fn exec_server(port: u16) {
 
                                 last_sequence_number = package.sequence_number;
                             };
+
+                            if !left_mouse_pressed && package.left_mouse_pressed {
+                                left_mouse_pressed_instant = now;
+                            }
+
                             left_mouse_pressed = package.left_mouse_pressed
                         }
                         ClientToServerPackage::RespawnRequest(package) => {
@@ -176,8 +185,6 @@ pub(crate) fn exec_server(port: u16) {
                         }
                     }
                 }
-
-                let now = Instant::now();
 
                 if left_mouse_pressed
                     && now - last_projectile_instant > Duration::from_millis(1000 / 10)
@@ -250,7 +257,34 @@ pub(crate) fn exec_server(port: u16) {
                                         last_projectile_instant = now;
                                     }
                                 }
-                                CharacterWeapon::Shield { .. } => {}
+                                CharacterWeapon::Shield {
+                                    self_destruct_timeout,
+                                    ..
+                                } => {
+                                    if now - left_mouse_pressed_instant > self_destruct_timeout {
+                                        game_state.register_kill(character.id);
+                                        let count = 32;
+                                        for i in 0..count {
+                                            game_state.create(
+                                                EntityCreateInfo {
+                                                    pos: character.pos,
+                                                    rot: Complex::from_rad((i as f32 / count as f32) * 2. * PI),
+                                                    color: character.color.clone(),
+                                                    role: EntityRole::Projectile {
+                                                        kind: ProjectileKind::Ball {
+                                                            life_duration: Duration::from_secs(i),
+                                                            owner_invincibility_duration: Duration::from_secs(1000),
+                                                            velocity: 500.,
+                                                            health: 1,
+                                                            radius: 4.,
+                                                        },
+                                                    },
+                                                },
+                                                player_id,
+                                            );
+                                        }
+                                    }
+                                }
                             },
                             EntityRole::Projectile { .. } => panic!("Woops!"),
                         }
@@ -262,6 +296,7 @@ pub(crate) fn exec_server(port: u16) {
                     if game_state.account_kill(player_id) {
                         drop(game_state);
                         player_state.killed = true;
+                        left_mouse_pressed = false;
                         write_package(&mut stream, ServerToClientPackage::Kill(KillPackage {}))?;
                     }
                 }

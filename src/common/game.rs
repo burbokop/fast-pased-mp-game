@@ -54,7 +54,10 @@ pub(crate) enum CharacterWeapon {
         velocity: f32,
         projectile_health: u8,
     },
-    Shield(Shield),
+    Shield {
+        shield: Shield,
+        self_destruct_timeout: Duration,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -318,7 +321,7 @@ impl GameState {
                 let x = x.borrow();
                 match &x.role {
                     EntityRole::Character { weapon } => match weapon {
-                        CharacterWeapon::Shield(shield) => Some(shield.segment(x.pos, x.rot)),
+                        CharacterWeapon::Shield { shield, ..  } => Some(shield.segment(x.pos, x.rot)),
                         _ => None,
                     },
                     _ => None,
@@ -528,6 +531,11 @@ impl GameState {
             }
             true
         });
+    }
+
+    pub(crate) fn register_kill(&mut self, id: u32) {
+        assert!(!self.kills.contains(&id));
+        self.kills.push(id);
     }
 
     pub(crate) fn account_kill(&mut self, player_id: NonZero<u64>) -> bool {
