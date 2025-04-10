@@ -18,7 +18,9 @@ use sdl2::{
     Sdl,
 };
 
-use crate::common::{Color, GameState, PlayerState, Point, Rect};
+use crate::common::{
+    Color, EntityRole, GameState, PlayerState, PlayerWeapon, Point, ProjectileKind, Rect, Vector,
+};
 
 fn game_color_to_sdl_color(c: Color) -> pixels::Color {
     pixels::Color {
@@ -186,6 +188,7 @@ impl RenderModel {
         &mut self,
         game_state: &GameState,
         player_state: &PlayerState,
+        weapon: PlayerWeapon,
         player_id: NonZero<u64>,
     ) {
         let now = Instant::now();
@@ -199,8 +202,8 @@ impl RenderModel {
             .unwrap();
 
         for entity in game_state.entities() {
-            match entity.role {
-                crate::common::EntityRole::Character => {
+            match &entity.role {
+                EntityRole::Character { .. } => {
                     let v = entity.vertices();
 
                     self.canvas
@@ -211,15 +214,41 @@ impl RenderModel {
                         )
                         .unwrap();
                 }
-                crate::common::EntityRole::Projectile => self
-                    .canvas
-                    .filled_circle(
-                        entity.pos.x as i16,
-                        entity.pos.y as i16,
-                        entity.inscribed_circle_radius() as i16,
-                        game_color_to_sdl_color(entity.color.clone()),
-                    )
-                    .unwrap(),
+                EntityRole::Projectile { kind } => match kind {
+                    ProjectileKind::Ball { radius, .. } => self
+                        .canvas
+                        .filled_circle(
+                            entity.pos.x as i16,
+                            entity.pos.y as i16,
+                            *radius as i16,
+                            game_color_to_sdl_color(entity.color.clone()),
+                        )
+                        .unwrap(),
+                    ProjectileKind::Ray {
+                        tail,
+                        reflection_points,
+                        ..
+                    } => {
+                        let p: Vec<_> = [*tail]
+                            .into_iter()
+                            .chain(reflection_points.clone().into_iter())
+                            .chain([entity.pos])
+                            .collect();
+
+                        for i in 1..p.len() {
+                            self.canvas
+                                .thick_line(
+                                    p[i - 1].x as i16,
+                                    p[i - 1].y as i16,
+                                    p[i].x as i16,
+                                    p[i].y as i16,
+                                    entity.inscribed_circle_radius() as u8,
+                                    game_color_to_sdl_color(entity.color.clone()),
+                                )
+                                .unwrap();
+                        }
+                    }
+                },
             }
         }
 
@@ -253,6 +282,45 @@ impl RenderModel {
                 pixels::Color::RGB(255, 255, 0),
                 &format!("You are killed. SPACE to respawn"),
                 (10. * (((now - self.creation_instant).as_millis_f32() * 0.002).sin() + 2.)) as u16,
+            );
+
+            self.font.draw_text(
+                &mut self.canvas,
+                (300, 500).into(),
+                if weapon == PlayerWeapon::BallGun {
+                    pixels::Color::RGB(255, 255, 0)
+                } else {
+                    pixels::Color::RGB(0, 255, 0)
+                },
+                &format!("Ball gun"),
+                (16. * (((now - self.creation_instant).as_millis_f32() * 0.001).sin() / 8. + 1.))
+                    as u16,
+            );
+
+            self.font.draw_text(
+                &mut self.canvas,
+                (400, 500).into(),
+                if weapon == PlayerWeapon::PulseGun {
+                    pixels::Color::RGB(255, 255, 0)
+                } else {
+                    pixels::Color::RGB(0, 255, 0)
+                },
+                &format!("Pulse gun"),
+                (16. * (((now - self.creation_instant).as_millis_f32() * 0.001 + 1.).sin() / 8.
+                    + 1.)) as u16,
+            );
+
+            self.font.draw_text(
+                &mut self.canvas,
+                (500, 500).into(),
+                if weapon == PlayerWeapon::RayGun {
+                    pixels::Color::RGB(255, 255, 0)
+                } else {
+                    pixels::Color::RGB(0, 255, 0)
+                },
+                &format!("Ray gun"),
+                (16. * (((now - self.creation_instant).as_millis_f32() * 0.001 + 2.).sin() / 8.
+                    + 1.)) as u16,
             );
         }
 

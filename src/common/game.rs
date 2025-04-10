@@ -2,11 +2,13 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::{
     cell::{Ref, RefCell, RefMut},
+    collections::VecDeque,
     num::NonZero,
+    ops::DerefMut,
     time::{Duration, Instant},
 };
 
-use super::{Complex, Point, Rect, Segment, Vector};
+use super::{Collide as _, Complex, DynSizeSegments as _, Point, Rect, Segment, Segments, Vector};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct Color {
@@ -16,10 +18,52 @@ pub(crate) struct Color {
     pub(crate) b: u8,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+pub(crate) enum CharacterWeapon {
+    BallGun {
+        life_duration: Duration,
+        owner_invincibility_duration: Duration,
+        fire_interval: Duration,
+        velocity: f32,
+        projectile_health: u8,
+        radius: f32,
+    },
+    RayGun {
+        life_duration: Duration,
+        owner_invincibility_duration: Duration,
+        tail_freeze_duration: Duration,
+        fire_interval: Duration,
+        velocity: f32,
+        projectile_health: u8,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub(crate) enum ProjectileKind {
+    Ball {
+        life_duration: Duration,
+        owner_invincibility_duration: Duration,
+        velocity: f32,
+        health: u8,
+        radius: f32,
+    },
+    Ray {
+        life_duration: Duration,
+        owner_invincibility_duration: Duration,
+        tail_freeze_duration: Duration,
+        velocity: f32,
+        health: u8,
+
+        tail: Point,
+        tail_rotation: Complex,
+        reflection_points: VecDeque<Point>,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub(crate) enum EntityRole {
-    Character,
-    Projectile,
+    Character { weapon: CharacterWeapon },
+    Projectile { kind: ProjectileKind },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -50,9 +94,12 @@ impl Entity {
     }
 
     pub(crate) fn inscribed_circle_radius(&self) -> f32 {
-        match self.role {
-            EntityRole::Character => 8.,
-            EntityRole::Projectile => 4.,
+        match &self.role {
+            EntityRole::Character { .. } => 8.,
+            EntityRole::Projectile { kind } => match kind {
+                ProjectileKind::Ball { radius, .. } => *radius,
+                ProjectileKind::Ray { .. } => 2.,
+            },
         }
     }
 
@@ -116,11 +163,14 @@ impl GameState {
             pos: entity.pos,
             rot: entity.rot,
             color: entity.color,
-            role: entity.role,
-            health: match entity.role {
-                EntityRole::Character => 3,
-                EntityRole::Projectile => 1,
+            health: match &entity.role {
+                EntityRole::Character { .. } => 3,
+                EntityRole::Projectile { kind } => match kind {
+                    ProjectileKind::Ball { health, .. } => *health,
+                    ProjectileKind::Ray { health, .. } => *health,
+                },
             },
+            role: entity.role,
         }));
         self.next_entity_id += 1;
     }
@@ -140,13 +190,10 @@ impl GameState {
         self.entities
             .iter()
             .find_map(|x| match x.try_borrow_mut().ok() {
-                Some(x) => {
-                    if x.player_id == player_id && x.role == EntityRole::Character {
-                        Some(x)
-                    } else {
-                        None
-                    }
-                }
+                Some(x) => match x.role {
+                    EntityRole::Character { .. } if x.player_id == player_id => Some(x),
+                    _ => None,
+                },
                 None => None,
             })
     }
@@ -186,102 +233,245 @@ impl GameState {
             })
     }
 
+    fn reflect(
+        position: &mut Point,
+        rotation: &mut Complex,
+        bounds: &Rect,
+        motion_segment: Segment,
+    ) -> bool {
+        for (i, edge) in bounds.edges().into_iter().enumerate() {
+            if let Some(r) = edge.ray_cast(motion_segment) {
+                if r.intersects() {
+                    *position = r.intersection_point();
+                    match i {
+                        0 => {
+                            *rotation = Complex {
+                                r: rotation.r,
+                                i: rotation.i.abs(),
+                            }
+                        }
+                        1 => {
+                            *rotation = Complex {
+                                r: -rotation.r.abs(),
+                                i: rotation.i,
+                            }
+                        }
+                        2 => {
+                            *rotation = Complex {
+                                r: rotation.r,
+                                i: -rotation.i.abs(),
+                            }
+                        }
+                        3 => {
+                            *rotation = Complex {
+                                r: rotation.r.abs(),
+                                i: rotation.i,
+                            }
+                        }
+                        _ => panic!("Wups!!!"),
+                    }
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     pub(crate) fn proceed(&mut self, dt: Duration) {
         let now = Instant::now();
-        self.entities.retain(|e| {
-            let mut e = e.borrow_mut();
-            match e.role {
-                EntityRole::Character => true,
-                EntityRole::Projectile => {
-                    let velosity = 200.;
-
-                    let motion_segment = Segment {
-                        p0: e.pos,
-                        p1: e.pos + Vector::polar(e.rot, velosity * 2. * dt.as_secs_f32()),
+        self.entities.retain(|entity| {
+            let mut entity = entity.borrow_mut();
+            match entity.role.clone() {
+                EntityRole::Character { .. } => true,
+                EntityRole::Projectile { kind } => {
+                    let velosity = match kind {
+                        ProjectileKind::Ball { velocity, .. } => velocity,
+                        ProjectileKind::Ray { velocity, .. } => velocity,
                     };
 
-                    for (i, edge) in self.world_bounds.edges().into_iter().enumerate() {
-                        if let Some(r) = edge.ray_cast(motion_segment) {
-                            if r.intersects() {
-                                match i {
-                                    0 => {
-                                        e.rot = Complex {
-                                            r: e.rot.r,
-                                            i: e.rot.i.abs(),
-                                        }
-                                    }
-                                    1 => {
-                                        e.rot = Complex {
-                                            r: -e.rot.r.abs(),
-                                            i: e.rot.i,
-                                        }
-                                    }
-                                    2 => {
-                                        e.rot = Complex {
-                                            r: e.rot.r,
-                                            i: -e.rot.i.abs(),
-                                        }
-                                    }
-                                    3 => {
-                                        e.rot = Complex {
-                                            r: e.rot.r.abs(),
-                                            i: e.rot.i,
-                                        }
-                                    }
-                                    _ => panic!("Wups!!!"),
+                    let life_duration = match kind {
+                        ProjectileKind::Ball { life_duration, .. } => life_duration,
+                        ProjectileKind::Ray { life_duration, .. } => life_duration,
+                    };
+
+                    fn step(
+                        position: &mut Point,
+                        rotation: &mut Complex,
+                        reflection_points: Option<&mut VecDeque<Point>>,
+                        tail: bool,
+                        bounds: &Rect,
+                        velosity: f32,
+                        dt: &Duration,
+                    ) {
+                        let motion_segment = Segment {
+                            p0: *position,
+                            p1: *position
+                                + Vector::polar(*rotation, velosity * 2. * dt.as_secs_f32()),
+                        };
+                        if GameState::reflect(position, rotation, bounds, motion_segment) {
+                            if let Some(reflection_points) = reflection_points {
+                                if tail {
+                                    reflection_points.pop_front();
+                                } else {
+                                    reflection_points.push_back(*position);
                                 }
-                                break;
                             }
+                        } else {
+                            *position =
+                                *position + Vector::polar(*rotation, velosity * dt.as_secs_f32());
                         }
                     }
 
-                    e.pos = e.pos + Vector::polar(e.rot, velosity * dt.as_secs_f32());
+                    let entity = entity.deref_mut();
+                    match &mut entity.role {
+                        EntityRole::Projectile { kind } => match kind {
+                            ProjectileKind::Ray {
+                                life_duration,
+                                tail_freeze_duration,
+                                tail,
+                                tail_rotation,
+                                reflection_points,
+                                ..
+                            } => {
+                                if now - entity.birth_instant.unwrap() < *life_duration {
+                                    step(
+                                        &mut entity.pos,
+                                        &mut entity.rot,
+                                        Some(reflection_points),
+                                        false,
+                                        &self.world_bounds,
+                                        velosity,
+                                        &dt,
+                                    );
+                                }
 
-                    now - e.birth_instant.unwrap() < Duration::from_secs(60)
+                                if now - entity.birth_instant.unwrap() > *tail_freeze_duration {
+                                    step(
+                                        tail,
+                                        tail_rotation,
+                                        Some(reflection_points),
+                                        true,
+                                        &self.world_bounds,
+                                        velosity,
+                                        &dt,
+                                    );
+                                }
+                                now - entity.birth_instant.unwrap()
+                                    < (*life_duration + *tail_freeze_duration)
+                            }
+                            _ => {
+                                step(
+                                    &mut entity.pos,
+                                    &mut entity.rot,
+                                    None,
+                                    false,
+                                    &self.world_bounds,
+                                    velosity,
+                                    &dt,
+                                );
+                                now - entity.birth_instant.unwrap() < life_duration
+                            }
+                        },
+                        _ => true,
+                    }
                 }
             }
         });
 
         for character in &self.entities {
             let mut character = character.borrow_mut();
-            if character.role == EntityRole::Character {
-                for projectile in &self.entities {
-                    if let Ok(mut projectile) = projectile.try_borrow_mut() {
-                        if projectile.role == EntityRole::Projectile
-                            && (projectile.player_id != character.player_id
-                                || (now - projectile.birth_instant.unwrap())
-                                    > Duration::from_millis(200))
-                        {
-                            if (character.pos - projectile.pos).len()
-                                < (character.inscribed_circle_radius()
-                                    + projectile.inscribed_circle_radius())
-                                && character.health != 0
-                                && projectile.health != 0
-                            {
-                                character.health -= 1;
-                                projectile.health -= 1;
+            match character.role {
+                EntityRole::Character { .. } => {
+                    for projectile in &self.entities {
+                        if let Ok(mut projectile) = projectile.try_borrow_mut() {
+                            match &projectile.role {
+                                EntityRole::Projectile { kind } => match kind {
+                                    ProjectileKind::Ball {
+                                        owner_invincibility_duration,
+                                        ..
+                                    } => {
+                                        if projectile.player_id != character.player_id
+                                            || (now - projectile.birth_instant.unwrap())
+                                                > *owner_invincibility_duration
+                                        {
+                                            if character.health != 0
+                                                && projectile.health != 0
+                                                && (character.pos - projectile.pos).len()
+                                                    < (character.inscribed_circle_radius()
+                                                        + projectile.inscribed_circle_radius())
+                                            {
+                                                character.health -= 1;
+                                                projectile.health -= 1;
 
-                                if character.health == 0 {
-                                    self.kills.push(character.id);
-                                }
+                                                if character.health == 0 {
+                                                    self.kills.push(character.id);
+                                                }
 
-                                if projectile.health == 0 {
-                                    self.kills.push(projectile.id);
-                                }
-                                break;
+                                                if projectile.health == 0 {
+                                                    self.kills.push(projectile.id);
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    ProjectileKind::Ray {
+                                        owner_invincibility_duration,
+                                        tail,
+                                        reflection_points,
+                                        ..
+                                    } => {
+                                        if projectile.player_id != character.player_id
+                                            || (now - projectile.birth_instant.unwrap())
+                                                > *owner_invincibility_duration
+                                        {
+                                            if character.health != 0 && projectile.health != 0 {
+                                                let projectile_trace: Vec<_> = [*tail]
+                                                    .into_iter()
+                                                    .chain(reflection_points.clone().into_iter())
+                                                    .chain([projectile.pos])
+                                                    .collect();
+
+                                                if projectile_trace.segments().any(|seg| {
+                                                    [seg]
+                                                        .collide(
+                                                            &character.vertices().segments_ringe(),
+                                                        )
+                                                        .is_some()
+                                                }) {
+                                                    character.health -= 1;
+                                                    projectile.health -= 1;
+
+                                                    if character.health == 0 {
+                                                        self.kills.push(character.id);
+                                                    }
+
+                                                    if projectile.health == 0 {
+                                                        self.kills.push(projectile.id);
+                                                    }
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                _ => {}
                             }
                         }
                     }
                 }
+                _ => {}
             }
         }
 
         self.entities.retain(|e| {
             let e = e.borrow();
             if let Some(index) = self.kills.iter().position(|x| *x == e.id) {
-                if e.role == EntityRole::Projectile {
-                    self.kills.remove(index);
-                    return false;
+                match e.role {
+                    EntityRole::Projectile { .. } => {
+                        self.kills.remove(index);
+                        return false;
+                    }
+                    _ => {}
                 }
             }
             true
@@ -292,11 +482,14 @@ impl GameState {
         let orig_len = self.entities.len();
         self.entities.retain(|e| {
             let e = e.borrow();
-            if e.role == EntityRole::Character && e.player_id == player_id {
-                if let Some(index) = self.kills.iter().position(|x| *x == e.id) {
-                    self.kills.remove(index);
-                    return false;
+            match e.role {
+                EntityRole::Character { .. } if e.player_id == player_id => {
+                    if let Some(index) = self.kills.iter().position(|x| *x == e.id) {
+                        self.kills.remove(index);
+                        return false;
+                    }
                 }
+                _ => {}
             }
             true
         });

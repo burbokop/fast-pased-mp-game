@@ -5,7 +5,7 @@ fn lerp_f32(a: f32, b: f32, t: f64) -> f32 {
     (a as f64 * (1. - t) + b as f64 * t) as f32
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub(crate) struct Point {
     pub(crate) x: f32,
     pub(crate) y: f32,
@@ -29,6 +29,17 @@ impl Add<Vector> for Point {
         Self::Output {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
+        }
+    }
+}
+
+impl Sub<Vector> for Point {
+    type Output = Point;
+
+    fn sub(self, rhs: Vector) -> Self::Output {
+        Self::Output {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
         }
     }
 }
@@ -241,6 +252,7 @@ pub(crate) struct Segment {
 }
 
 pub(crate) struct RayCastScalars {
+    pub(crate) segments: (Segment, Segment),
     pub(crate) t: f32,
     pub(crate) u: f32,
 }
@@ -251,6 +263,10 @@ impl RayCastScalars {
     }
     pub(crate) fn intersects_including(&self) -> bool {
         self.t >= 0. && self.t <= 1. && self.u >= 0. && self.u <= 1.
+    }
+
+    pub(crate) fn intersection_point(&self) -> Point {
+        self.segments.0.p0 + (self.segments.0.p1 - self.segments.0.p0) * self.t
     }
 }
 
@@ -383,11 +399,15 @@ impl Segment {
         let t = Vector::cross(ac, cd) / Vector::cross(ab, cd);
         let u = Vector::cross(ac, ab) / Vector::cross(ab, cd);
 
-        Some(RayCastScalars { t, u })
+        Some(RayCastScalars {
+            t,
+            u,
+            segments: (self, rhs),
+        })
     }
 }
 
-pub(crate) trait Collide<Rhs = Self> {
+pub(crate) trait Collide<Rhs: ?Sized = Self> {
     fn collide(&self, rhs: &Rhs) -> Option<Vector>;
 }
 
@@ -452,12 +472,73 @@ impl<const C0: usize, const C1: usize> Collide<[Segment; C1]> for [Segment; C0] 
     }
 }
 
+// impl Collide<[Segment]> for [Segment] {
+//     fn collide(&self, rhs: &[Segment]) -> Option<Vector> {
+//         let axes: Vec<_> = self
+//             .iter()
+//             .chain(rhs.iter())
+//             .map(|x| x.vec().left_perpendicular().normalize())
+//             .collect();
+
+//         let mut exit_vectors = Vec::with_capacity(axes.len());
+
+//         for axis in axes {
+//             let proj = |edges: &[Segment]| -> Segment {
+//                 fn min_point(p0: Point, p1: Point) -> Point {
+//                     Point {
+//                         x: p0.x.min(p1.x),
+//                         y: p0.y.min(p1.y),
+//                     }
+//                 }
+
+//                 fn max_point(p0: Point, p1: Point) -> Point {
+//                     Point {
+//                         x: p0.x.max(p1.x),
+//                         y: p0.y.max(p1.y),
+//                     }
+//                 }
+
+//                 edges
+//                     .into_iter()
+//                     .map(|edge| {
+//                         let proj = edge.project_on(axis);
+
+//                         [proj.p0, proj.p1]
+//                     })
+//                     .flatten()
+//                     .fold(None, |m: Option<Segment>, x| {
+//                         m.map_or(Some(Segment { p0: x, p1: x }), |Segment { p0, p1 }| {
+//                             Some(Segment {
+//                                 p0: min_point(p0, x),
+//                                 p1: max_point(p1, x),
+//                             })
+//                         })
+//                     })
+//                     .unwrap()
+//             };
+
+//             let proj0 = proj(self);
+//             let proj1 = proj(rhs);
+
+//             if let Some(exit_vec) = proj0.exit_vec_while_intersects_on_the_same_line(&proj1) {
+//                 exit_vectors.push(exit_vec);
+//             } else {
+//                 return None;
+//             }
+//         }
+
+//         exit_vectors
+//             .into_iter()
+//             .min_by(|a, b| a.len().partial_cmp(&b.len()).unwrap())
+//     }
+// }
+
 pub(crate) trait Segments<const C: usize> {
-    fn segments(self) -> [Segment; C];
+    fn segments_ringe(self) -> [Segment; C];
 }
 
 impl<const C: usize> Segments<C> for [Point; C] {
-    fn segments(self) -> [Segment; C] {
+    fn segments_ringe(self) -> [Segment; C] {
         let mut i: usize = 0;
         self.map(|p0| {
             let r = Segment {
@@ -466,6 +547,28 @@ impl<const C: usize> Segments<C> for [Point; C] {
             };
             i += 1;
             r
+        })
+    }
+}
+
+pub(crate) trait DynSizeSegments {
+    fn segments_ringe(&self) -> impl Iterator<Item = Segment>;
+
+    fn segments(&self) -> impl Iterator<Item = Segment>;
+}
+
+impl DynSizeSegments for [Point] {
+    fn segments_ringe(&self) -> impl Iterator<Item = Segment> {
+        (0..self.len()).map(|i| Segment {
+            p0: self[i],
+            p1: self[(i + 1) % self.len()],
+        })
+    }
+
+    fn segments(&self) -> impl Iterator<Item = Segment> {
+        (1..self.len()).map(|i| Segment {
+            p0: self[i - 1],
+            p1: self[i],
         })
     }
 }

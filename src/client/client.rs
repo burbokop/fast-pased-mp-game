@@ -14,7 +14,8 @@ use crate::{
     common::{
         ClientToServerPackage, Collide as _, Color, Complex, EntityCreateInfo, EntityRole,
         GameState, PacketReader, PacketWriter, PlayerConnectedPackage, PlayerInputPackage,
-        PlayerState, Point, RespawnRequestPackage, Segments as _, ServerToClientPackage, Vector,
+        PlayerState, PlayerWeapon, Point, RespawnRequestPackage, Segments as _,
+        ServerToClientPackage, Vector,
     },
 };
 
@@ -190,6 +191,7 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
     let mut event_pump = sdl_context.event_pump()?;
     let mut render_model = RenderModel::new(sdl_context)?;
     let mut player_state: PlayerState = Default::default();
+    let mut weapon = PlayerWeapon::BallGun;
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -216,7 +218,12 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
                 Event::KeyUp {
                     keycode: Some(Keycode::A),
                     ..
-                } => controlls.left_pressed = false,
+                } => {
+                    controlls.left_pressed = false;
+                    if player_state.killed {
+                        weapon = weapon.rotated_left()
+                    }
+                }
 
                 Event::KeyDown {
                     keycode: Some(Keycode::S),
@@ -234,7 +241,12 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
                 Event::KeyUp {
                     keycode: Some(Keycode::D),
                     ..
-                } => controlls.right_pressed = false,
+                } => {
+                    controlls.right_pressed = false;
+                    if player_state.killed {
+                        weapon = weapon.rotated_right()
+                    }
+                }
 
                 Event::KeyDown {
                     keycode: Some(Keycode::Space),
@@ -270,7 +282,7 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
                     player_state.killed = false;
                     networker
                         .write_package(ClientToServerPackage::RespawnRequest(
-                            RespawnRequestPackage {},
+                            RespawnRequestPackage { weapon },
                         ))
                         .unwrap();
                 }
@@ -300,7 +312,8 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
                     entity.rot = (controlls.mouse_pos - entity.pos).normalize_into_complex();
 
                     for bound in game_state_queue.prediction.world_bounds().edges() {
-                        if let Some(exit_vec) = entity.vertices().segments().collide(&[bound]) {
+                        if let Some(exit_vec) = entity.vertices().segments_ringe().collide(&[bound])
+                        {
                             entity.pos += exit_vec;
                         }
                     }
@@ -335,7 +348,12 @@ pub(crate) fn exec_client(addr: SocketAddrV4) -> Result<(), String> {
             .unwrap();
 
         if let Some(player_id) = networker.player_id {
-            render_model.render(&game_state_queue.prediction, &player_state, player_id);
+            render_model.render(
+                &game_state_queue.prediction,
+                &player_state,
+                weapon,
+                player_id,
+            );
         }
 
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));

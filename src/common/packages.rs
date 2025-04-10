@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Color, Complex, EntityCreateInfo, GameState, PlayerState, Vector};
+use super::{Color, Complex, GameState, PlayerState, Vector};
 
 /// Sent from server to client when it is connected
 #[derive(Debug, Serialize, Deserialize)]
@@ -24,8 +24,35 @@ pub(crate) struct PlayerConnectedPackage {
     pub(crate) color: Color,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlayerWeapon {
+    BallGun,
+    PulseGun,
+    RayGun,
+}
+
+impl PlayerWeapon {
+    pub(crate) fn rotated_left(self) -> Self {
+        match self {
+            PlayerWeapon::BallGun => PlayerWeapon::RayGun,
+            PlayerWeapon::PulseGun => PlayerWeapon::BallGun,
+            PlayerWeapon::RayGun => PlayerWeapon::PulseGun,
+        }
+    }
+
+    pub(crate) fn rotated_right(self) -> Self {
+        match self {
+            PlayerWeapon::BallGun => PlayerWeapon::PulseGun,
+            PlayerWeapon::PulseGun => PlayerWeapon::RayGun,
+            PlayerWeapon::RayGun => PlayerWeapon::BallGun,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct RespawnRequestPackage {}
+pub(crate) struct RespawnRequestPackage {
+    pub(crate) weapon: PlayerWeapon,
+}
 
 /// Sent from client to server when player inputs something
 #[derive(Debug, Serialize, Deserialize)]
