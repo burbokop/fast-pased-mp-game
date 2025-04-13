@@ -1,6 +1,6 @@
 use crate::common::{
-    CharacterWeapon, Color, EntityRole, GameState, PlayerState, PlayerWeapon, Point,
-    ProjectileKind, Rect,
+    CharacterWeapon, Color, Complex, DynSizeSegments, EntityRole, GameState, PlayerState,
+    PlayerWeapon, Point, ProjectileKind, Rect,
 };
 use font_loader::system_fonts;
 use sdl2::{
@@ -213,7 +213,7 @@ impl RenderModel {
                     match weapon {
                         CharacterWeapon::BallGun { .. } => {}
                         CharacterWeapon::RayGun { .. } => {}
-                        CharacterWeapon::Shield{ shield, .. } => {
+                        CharacterWeapon::Shield { shield, .. } => {
                             let seg = shield.segment(entity.pos, entity.rot);
 
                             self.canvas
@@ -227,6 +227,7 @@ impl RenderModel {
                                 )
                                 .unwrap();
                         }
+                        CharacterWeapon::MineGun { .. } => {}
                     }
                 }
                 EntityRole::Projectile { kind } => match kind {
@@ -239,14 +240,12 @@ impl RenderModel {
                             game_color_to_sdl_color(entity.color.clone()),
                         )
                         .unwrap(),
-                    ProjectileKind::Ray {
-                        tail,
-                        reflection_points,
-                        ..
-                    } => {
-                        let p: Vec<_> = [*tail]
+                    ProjectileKind::Ray { .. } => {
+                        let tail = entity.tail.as_ref().unwrap();
+
+                        let p: Vec<_> = [tail.end]
                             .into_iter()
-                            .chain(reflection_points.clone().into_iter())
+                            .chain(tail.reflection_points.clone().into_iter())
                             .chain([entity.pos])
                             .collect();
 
@@ -262,6 +261,33 @@ impl RenderModel {
                                 )
                                 .unwrap();
                         }
+                    }
+                    ProjectileKind::Mine {
+                        radius,
+                        activation_duration,
+                        ..
+                    } => {
+                        let p = entity.pos.inflate(*radius).points().map(|p| {
+                            entity.pos
+                                + (p - entity.pos)
+                                    * Complex::from_rad(
+                                        (now - self.creation_instant).as_millis_f32() * 0.001,
+                                    )
+                        });
+
+                        let color = if entity.activated {
+                            game_color_to_sdl_color(entity.color.clone().with_r(
+                                ((((now - self.creation_instant).as_millis_f32() * 0.001).sin()
+                                    + 1.)
+                                    * 128.) as u8,
+                            ))
+                        } else {
+                            game_color_to_sdl_color(entity.color.clone())
+                        };
+
+                        self.canvas
+                            .filled_polygon(&p.map(|p| p.x as i16), &p.map(|p| p.y as i16), color)
+                            .unwrap();
                     }
                 },
             }
@@ -354,8 +380,12 @@ impl RenderModel {
             self.font.draw_text(
                 &mut self.canvas,
                 (600, 500).into(),
-                pixels::Color::RGB(0, 255, 0),
-                &format!("Coming soon"),
+                if weapon == PlayerWeapon::MineGun {
+                    pixels::Color::RGB(255, 255, 0)
+                } else {
+                    pixels::Color::RGB(0, 255, 0)
+                },
+                &format!("Mine gun"),
                 (16. * (((now - self.creation_instant).as_millis_f32() * 0.001 + 4.).sin() / 8.
                     + 1.)) as u16,
             );

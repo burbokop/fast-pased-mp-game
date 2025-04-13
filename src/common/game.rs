@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::{
     cell::{Ref, RefCell, RefMut},
     collections::VecDeque,
+    f32::consts::PI,
     num::NonZero,
-    ops::DerefMut,
+    ops::{Deref, DerefMut},
     time::{Duration, Instant},
 };
 
@@ -18,6 +19,26 @@ pub(crate) struct Color {
     pub(crate) r: u8,
     pub(crate) g: u8,
     pub(crate) b: u8,
+}
+
+impl Color {
+    pub(crate) fn with_a(self, a: u8) -> Self {
+        Self {
+            a,
+            r: self.r,
+            g: self.g,
+            b: self.b,
+        }
+    }
+
+    pub(crate) fn with_r(self, r: u8) -> Self {
+        Self {
+            a: self.a,
+            r,
+            g: self.g,
+            b: self.b,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
@@ -36,7 +57,7 @@ impl Shield {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub(crate) enum CharacterWeapon {
     BallGun {
         life_duration: Duration,
@@ -58,6 +79,19 @@ pub(crate) enum CharacterWeapon {
         shield: Shield,
         self_destruct_timeout: Duration,
     },
+    MineGun {
+        fire_interval: Duration,
+        life_duration: Duration,
+        owner_invincibility_duration: Duration,
+        activation_duration: Duration,
+        start_velocity: f32,
+        acceleration: f32,
+        radius: f32,
+        detection_radius: f32,
+        explosion_radius: f32,
+        debris_kind: Box<ProjectileKind>,
+        debris_count: u8,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -75,10 +109,18 @@ pub(crate) enum ProjectileKind {
         tail_freeze_duration: Duration,
         velocity: f32,
         health: u8,
-
-        tail: Point,
-        tail_rotation: Complex,
-        reflection_points: VecDeque<Point>,
+    },
+    Mine {
+        life_duration: Duration,
+        owner_invincibility_duration: Duration,
+        activation_duration: Duration,
+        velocity: f32,
+        acceleration: f32,
+        radius: f32,
+        detection_radius: f32,
+        explosion_radius: f32,
+        debris_kind: Box<ProjectileKind>,
+        debris_count: u8,
     },
 }
 
@@ -86,6 +128,13 @@ pub(crate) enum ProjectileKind {
 pub(crate) enum EntityRole {
     Character { weapon: CharacterWeapon },
     Projectile { kind: ProjectileKind },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct EntityTail {
+    pub(crate) end: Point,
+    pub(crate) rotation: Complex,
+    pub(crate) reflection_points: VecDeque<Point>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -99,6 +148,8 @@ pub(crate) struct Entity {
     pub(crate) color: Color,
     pub(crate) role: EntityRole,
     pub(crate) health: u8,
+    pub(crate) tail: Option<EntityTail>,
+    pub(crate) activated: bool,
 }
 
 impl Entity {
@@ -112,6 +163,8 @@ impl Entity {
             color: b.color,
             role: b.role,
             health: b.health,
+            tail: b.tail,
+            activated: b.activated,
         }
     }
 
@@ -121,6 +174,7 @@ impl Entity {
             EntityRole::Projectile { kind } => match kind {
                 ProjectileKind::Ball { radius, .. } => *radius,
                 ProjectileKind::Ray { .. } => 2.,
+                ProjectileKind::Mine { radius, .. } => *radius,
             },
         }
     }
@@ -141,6 +195,7 @@ pub(crate) struct EntityCreateInfo {
     pub(crate) rot: Complex,
     pub(crate) color: Color,
     pub(crate) role: EntityRole,
+    pub(crate) tail: Option<EntityTail>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -190,9 +245,12 @@ impl GameState {
                 EntityRole::Projectile { kind } => match kind {
                     ProjectileKind::Ball { health, .. } => *health,
                     ProjectileKind::Ray { health, .. } => *health,
+                    ProjectileKind::Mine { .. } => 0,
                 },
             },
             role: entity.role,
+            tail: entity.tail,
+            activated: false,
         }));
         self.next_entity_id += 1;
     }
@@ -313,6 +371,7 @@ impl GameState {
 
     pub(crate) fn proceed(&mut self, dt: Duration) {
         let now = Instant::now();
+        let mut create_infos: Vec<(EntityCreateInfo, NonZero<u64>)> = Default::default();
 
         let shields: Vec<Segment> = self
             .entities
@@ -321,7 +380,9 @@ impl GameState {
                 let x = x.borrow();
                 match &x.role {
                     EntityRole::Character { weapon } => match weapon {
-                        CharacterWeapon::Shield { shield, ..  } => Some(shield.segment(x.pos, x.rot)),
+                        CharacterWeapon::Shield { shield, .. } => {
+                            Some(shield.segment(x.pos, x.rot))
+                        }
                         _ => None,
                     },
                     _ => None,
@@ -330,7 +391,7 @@ impl GameState {
             .flatten()
             .collect();
 
-        self.entities.retain(|entity| {
+        self.entities.retain(|entity| -> bool {
             let mut entity = entity.borrow_mut();
             match entity.role.clone() {
                 EntityRole::Character { .. } => true,
@@ -338,11 +399,13 @@ impl GameState {
                     let velosity = match kind {
                         ProjectileKind::Ball { velocity, .. } => velocity,
                         ProjectileKind::Ray { velocity, .. } => velocity,
+                        ProjectileKind::Mine { velocity, .. } => velocity,
                     };
 
                     let life_duration = match kind {
                         ProjectileKind::Ball { life_duration, .. } => life_duration,
                         ProjectileKind::Ray { life_duration, .. } => life_duration,
+                        ProjectileKind::Mine { life_duration, .. } => life_duration,
                     };
 
                     fn step(
@@ -380,16 +443,15 @@ impl GameState {
                             ProjectileKind::Ray {
                                 life_duration,
                                 tail_freeze_duration,
-                                tail,
-                                tail_rotation,
-                                reflection_points,
                                 ..
                             } => {
+                                let tail = entity.tail.as_mut().unwrap();
+
                                 if now - entity.birth_instant.unwrap() < *life_duration {
                                     step(
                                         &mut entity.pos,
                                         &mut entity.rot,
-                                        Some(reflection_points),
+                                        Some(&mut tail.reflection_points),
                                         false,
                                         &self.world_bounds,
                                         &shields,
@@ -400,9 +462,9 @@ impl GameState {
 
                                 if now - entity.birth_instant.unwrap() > *tail_freeze_duration {
                                     step(
-                                        tail,
-                                        tail_rotation,
-                                        Some(reflection_points),
+                                        &mut tail.end,
+                                        &mut tail.rotation,
+                                        Some(&mut tail.reflection_points),
                                         true,
                                         &self.world_bounds,
                                         &shields,
@@ -412,6 +474,39 @@ impl GameState {
                                 }
                                 now - entity.birth_instant.unwrap()
                                     < (*life_duration + *tail_freeze_duration)
+                            }
+                            ProjectileKind::Mine {
+                                life_duration,
+                                owner_invincibility_duration,
+                                activation_duration,
+                                velocity,
+                                acceleration,
+                                radius,
+                                detection_radius,
+                                explosion_radius,
+                                debris_kind,
+                                debris_count,
+                            } => {
+                                entity.activated =
+                                    now - entity.birth_instant.unwrap() > *activation_duration;
+
+                                let new_velocity = *velocity + *acceleration * dt.as_secs_f32();
+                                if velocity.signum() == new_velocity.signum() {
+                                    *velocity = new_velocity;
+                                }
+
+                                step(
+                                    &mut entity.pos,
+                                    &mut entity.rot,
+                                    None,
+                                    false,
+                                    &self.world_bounds,
+                                    &shields,
+                                    velosity,
+                                    &dt,
+                                );
+
+                                now - entity.birth_instant.unwrap() < *life_duration
                             }
                             _ => {
                                 step(
@@ -439,7 +534,8 @@ impl GameState {
                 EntityRole::Character { .. } => {
                     for projectile in &self.entities {
                         if let Ok(mut projectile) = projectile.try_borrow_mut() {
-                            match &projectile.role {
+                            let mut acc: Option<Vector> = None;
+                            match & projectile.role {
                                 EntityRole::Projectile { kind } => match kind {
                                     ProjectileKind::Ball {
                                         owner_invincibility_duration,
@@ -471,18 +567,20 @@ impl GameState {
                                     }
                                     ProjectileKind::Ray {
                                         owner_invincibility_duration,
-                                        tail,
-                                        reflection_points,
                                         ..
                                     } => {
+                                        let tail = projectile.tail.as_ref().unwrap();
+
                                         if projectile.player_id != character.player_id
                                             || (now - projectile.birth_instant.unwrap())
                                                 > *owner_invincibility_duration
                                         {
                                             if character.health != 0 && projectile.health != 0 {
-                                                let projectile_trace: Vec<_> = [*tail]
+                                                let projectile_trace: Vec<_> = [tail.end]
                                                     .into_iter()
-                                                    .chain(reflection_points.clone().into_iter())
+                                                    .chain(
+                                                        tail.reflection_points.clone().into_iter(),
+                                                    )
                                                     .chain([projectile.pos])
                                                     .collect();
 
@@ -508,8 +606,68 @@ impl GameState {
                                             }
                                         }
                                     }
+                                    ProjectileKind::Mine {
+                                        life_duration,
+                                        owner_invincibility_duration,
+                                        activation_duration,
+                                        velocity,
+                                        acceleration,
+                                        radius,
+                                        detection_radius,
+                                        explosion_radius,
+                                        debris_kind,
+                                        debris_count,
+                                    } => {
+                                        if projectile.activated
+                                            && (projectile.player_id != character.player_id
+                                                || (now - projectile.birth_instant.unwrap())
+                                                    > *owner_invincibility_duration)
+                                        {
+                                            if (character.pos - projectile.pos).len()
+                                            < (character.inscribed_circle_radius()
+                                                + *detection_radius) {
+                                                    acc = Some((character.pos - projectile.pos).normalize() * -2. * *acceleration * dt.as_secs_f32());
+                                                }
+
+
+                                            if (character.pos - projectile.pos).len()
+                                                < (character.inscribed_circle_radius()
+                                                    + explosion_radius)
+                                            {
+                                                for i in 0..*debris_count {
+                                                    let rot = Complex::from_rad(
+                                                        (i as f32 / *debris_count as f32) * 2. * PI,
+                                                    );
+                                                    create_infos.push((
+                                                        EntityCreateInfo {
+                                                            pos: projectile.pos,
+                                                            rot,
+                                                            color: projectile.color.clone(),
+                                                            role: EntityRole::Projectile {
+                                                                kind: debris_kind.deref().clone(),
+                                                            },
+
+                                                            tail: Some(EntityTail {
+                                                                end: projectile.pos,
+                                                                rotation: rot,
+                                                                reflection_points: Default::default(
+                                                                ),
+                                                            }),
+                                                        },
+                                                        projectile.player_id,
+                                                    ));
+                                                }
+
+                                                self.kills.push(projectile.id);
+                                                break;
+                                            }
+                                        }
+                                    }
                                 },
                                 _ => {}
+                            }
+                            if let Some(acc) = acc {
+                            projectile.pos += acc;
                             }
                         }
                     }
@@ -531,6 +689,10 @@ impl GameState {
             }
             true
         });
+
+        for (create_info, player_id) in create_infos {
+            self.create(create_info, player_id);
+        }
     }
 
     pub(crate) fn register_kill(&mut self, id: u32) {

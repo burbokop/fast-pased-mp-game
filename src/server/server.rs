@@ -1,18 +1,16 @@
+use crate::common::{
+    BroadcastPackage, CharacterWeapon, ClientToServerPackage, Collide as _, Complex,
+    EntityCreateInfo, EntityRole, EntityTail, GameState, InitPackage, KillPackage, PacketReader,
+    PacketWriter, PlayerState, PlayerWeapon, Point, ProjectileKind, Segments as _,
+    ServerToClientPackage, Shield,
+};
+use rand::rng;
 use std::{
     f32::consts::PI,
     net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
-};
-
-use rand::rng;
-
-use crate::common::{
-    BroadcastPackage, CharacterWeapon, ClientToServerPackage, Collide as _, Complex,
-    EntityCreateInfo, EntityRole, GameState, InitPackage, KillPackage, PacketReader, PacketWriter,
-    PlayerState, PlayerWeapon, ProjectileKind, Segments as _, ServerToClientPackage, Shield,
-    Vector, I,
 };
 
 fn character_weapon_from_player_weapon(weapon: PlayerWeapon) -> CharacterWeapon {
@@ -41,10 +39,43 @@ fn character_weapon_from_player_weapon(weapon: PlayerWeapon) -> CharacterWeapon 
             velocity: 2000.,
             projectile_health: 16,
         },
-        PlayerWeapon::Shield => CharacterWeapon::Shield{ shield: Shield {
-            width: 48.,
-            dst_from_character: 32.,
-        }, self_destruct_timeout: Duration::from_secs(2) },
+        PlayerWeapon::Shield => CharacterWeapon::Shield {
+            shield: Shield {
+                width: 48.,
+                dst_from_character: 32.,
+            },
+            self_destruct_timeout: Duration::from_secs(2),
+        },
+        PlayerWeapon::MineGun => CharacterWeapon::MineGun {
+            fire_interval: Duration::from_secs(8),
+            life_duration: Duration::from_secs(32),
+            owner_invincibility_duration: Duration::from_secs(1000),
+            activation_duration: Duration::from_secs(2),
+            start_velocity: 500.,
+            acceleration: -100.,
+            radius: 6.,
+            detection_radius: 200.,
+            explosion_radius: 100.,
+            debris_kind: Box::new(ProjectileKind::Mine {
+                life_duration: Duration::from_secs(16),
+                owner_invincibility_duration: Duration::from_secs(2),
+                activation_duration: Duration::from_secs(1),
+                velocity: 500.,
+                acceleration: -100.,
+                radius: 4.,
+                detection_radius: 100.,
+                explosion_radius: 50.,
+                debris_kind: Box::new(ProjectileKind::Ray {
+                    life_duration: Duration::from_millis(4000),
+                    owner_invincibility_duration: Duration::from_millis(500),
+                    tail_freeze_duration: Duration::from_millis(100),
+                    velocity: 200.,
+                    health: 1,
+                }),
+                debris_count: 12,
+            }),
+            debris_count: 6,
+        },
     }
 }
 
@@ -112,6 +143,7 @@ pub(crate) fn exec_server(port: u16) {
                                     rot: Complex { r: 1., i: 0. },
                                     color: player_state.color.clone(),
                                     role: EntityRole::Character { weapon },
+                                    tail: None,
                                 },
                                 player_id,
                             );
@@ -178,6 +210,7 @@ pub(crate) fn exec_server(port: u16) {
                                     rot: Complex { r: 1., i: 0. },
                                     color: player_state.color.clone(),
                                     role: EntityRole::Character { weapon },
+                                    tail: None,
                                 };
 
                                 game_state.create(create_info, player_id);
@@ -219,6 +252,7 @@ pub(crate) fn exec_server(port: u16) {
                                                         radius,
                                                     },
                                                 },
+                                                tail: None,
                                             },
                                             player_id,
                                         );
@@ -246,11 +280,13 @@ pub(crate) fn exec_server(port: u16) {
                                                         tail_freeze_duration,
                                                         velocity,
                                                         health: projectile_health,
-                                                        tail: character.pos,
-                                                        tail_rotation: character.rot,
-                                                        reflection_points: Default::default(),
                                                     },
                                                 },
+                                                tail: Some(EntityTail {
+                                                    end: character.pos,
+                                                    rotation: character.rot,
+                                                    reflection_points: Default::default(),
+                                                }),
                                             },
                                             player_id,
                                         );
@@ -268,21 +304,65 @@ pub(crate) fn exec_server(port: u16) {
                                             game_state.create(
                                                 EntityCreateInfo {
                                                     pos: character.pos,
-                                                    rot: Complex::from_rad((i as f32 / count as f32) * 2. * PI),
+                                                    rot: Complex::from_rad(
+                                                        (i as f32 / count as f32) * 2. * PI,
+                                                    ),
                                                     color: character.color.clone(),
                                                     role: EntityRole::Projectile {
                                                         kind: ProjectileKind::Ball {
                                                             life_duration: Duration::from_secs(i),
-                                                            owner_invincibility_duration: Duration::from_secs(1000),
+                                                            owner_invincibility_duration:
+                                                                Duration::from_secs(1000),
                                                             velocity: 500.,
                                                             health: 1,
                                                             radius: 4.,
                                                         },
                                                     },
+                                                    tail: None,
                                                 },
                                                 player_id,
                                             );
                                         }
+                                    }
+                                }
+                                CharacterWeapon::MineGun {
+                                    fire_interval,
+                                    life_duration,
+                                    owner_invincibility_duration,
+                                    activation_duration,
+                                    start_velocity,
+                                    acceleration,
+                                    radius,
+                                    detection_radius,
+                                    explosion_radius,
+                                    debris_kind,
+                                    debris_count,
+                                } => {
+                                    if now - last_projectile_instant > fire_interval {
+                                        game_state.create(
+                                            EntityCreateInfo {
+                                                pos: character.pos,
+                                                rot: character.rot,
+                                                color: character.color.clone(),
+                                                role: EntityRole::Projectile {
+                                                    kind: ProjectileKind::Mine {
+                                                        life_duration,
+                                                        owner_invincibility_duration,
+                                                        activation_duration,
+                                                        velocity: start_velocity,
+                                                        acceleration,
+                                                        radius,
+                                                        detection_radius,
+                                                        explosion_radius,
+                                                        debris_kind,
+                                                        debris_count,
+                                                    },
+                                                },
+                                                tail: None,
+                                            },
+                                            player_id,
+                                        );
+                                        last_projectile_instant = now;
                                     }
                                 }
                             },

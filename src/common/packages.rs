@@ -28,15 +28,17 @@ pub(crate) enum PlayerWeapon {
     PulseGun,
     RayGun,
     Shield,
+    MineGun,
 }
 
 impl PlayerWeapon {
     pub(crate) fn rotated_left(self) -> Self {
         match self {
-            PlayerWeapon::BallGun => PlayerWeapon::Shield,
+            PlayerWeapon::BallGun => PlayerWeapon::MineGun,
             PlayerWeapon::PulseGun => PlayerWeapon::BallGun,
             PlayerWeapon::RayGun => PlayerWeapon::PulseGun,
             PlayerWeapon::Shield => PlayerWeapon::RayGun,
+            PlayerWeapon::MineGun => PlayerWeapon::Shield,
         }
     }
 
@@ -45,7 +47,8 @@ impl PlayerWeapon {
             PlayerWeapon::BallGun => PlayerWeapon::PulseGun,
             PlayerWeapon::PulseGun => PlayerWeapon::RayGun,
             PlayerWeapon::RayGun => PlayerWeapon::Shield,
-            PlayerWeapon::Shield => PlayerWeapon::BallGun,
+            PlayerWeapon::Shield => PlayerWeapon::MineGun,
+            PlayerWeapon::MineGun => PlayerWeapon::BallGun,
         }
     }
 }

@@ -55,6 +55,15 @@ impl Point {
             y: lerp_f32(a.y, b.y, t),
         }
     }
+
+    pub(crate) fn inflate(self, radius: f32) -> Rect {
+        Rect {
+            x: self.x - radius,
+            y: self.y - radius,
+            w: radius * 2.,
+            h: radius * 2.,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
@@ -67,7 +76,10 @@ pub(crate) static I: Complex = Complex { r: 0., i: 1. };
 
 impl Complex {
     pub(crate) fn from_rad(v: f32) -> Self {
-        Self { r:v.cos(), i: v.sin() }
+        Self {
+            r: v.cos(),
+            i: v.sin(),
+        }
     }
 
     pub(crate) fn len(&self) -> f32 {
@@ -187,7 +199,7 @@ impl Vector {
     }
 }
 
-impl  MulAssign for Complex {
+impl MulAssign for Complex {
     fn mul_assign(&mut self, rhs: Self) {
         *self = *self * rhs;
     }
